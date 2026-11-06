@@ -1,0 +1,85 @@
+# Named real places blocked by the prompt filter (SR-6).
+# SAMPLE LIST ONLY. The compliance owner must maintain and extend this
+# gazetteer (e.g. from Census/OSM place names) [VERIFY coverage].
+mumbai
+bombay
+delhi
+new delhi
+bengaluru
+bangalore
+chennai
+madras
+kolkata
+calcutta
+hyderabad
+pune
+ahmedabad
+jaipur
+lucknow
+kanpur
+nagpur
+indore
+bhopal
+patna
+surat
+kochi
+cochin
+mysuru
+mysore
+guwahati
+chandigarh
+noida
+gurugram
+gurgaon
+thiruvananthapuram
+visakhapatnam
+coimbatore
+srinagar
+amritsar
+varanasi
+mangaluru
+mangalore
+hubballi
+belagavi
+taj mahal
+india gate
+red fort
+gateway of india
+connaught place
+marine drive
+chandni chowk
+mg road
+brigade road
+koramangala
+whitefield
+electronic city
+indiranagar
+jayanagar
+andheri
+bandra
+dadar
+churchgate
+chhatrapati shivaji
+cst
+victoria terminus
+howrah
+sealdah
+charminar
+hitech city
+cyberabad
+kempegowda
+rvce
+iit
+iisc
+london
+new york
+paris
+tokyo
+dubai
+singapore
+beijing
+moscow
+washington
+times square
+heathrow
+jfk

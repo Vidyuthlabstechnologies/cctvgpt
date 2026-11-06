@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CCTVGPT Dashboard</title>
+<style>
+  :root { --bg:#f5f6f8; --panel:#fff; --ink:#1d2330; --muted:#5d6678; --line:#dde1e8; --accent:#1f5fbf; --warn:#a15c00; --bad:#b3261e; --ok:#1e7b34; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171c; --panel:#1d2128; --ink:#e7eaf0; --muted:#9aa3b2; --line:#2e3440; --accent:#6ea2ff; --warn:#f0b35a; --bad:#ff8a80; --ok:#7bd88f; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); background:var(--panel); display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  header .tag { font-size:12px; color:var(--warn); border:1px solid var(--warn); border-radius:4px; padding:1px 6px; }
+  header a { color:var(--accent); margin-left:auto; }
+  main { max-width:1200px; margin:0 auto; padding:16px; display:grid; grid-template-columns: minmax(0,420px) minmax(0,1fr); gap:16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:16px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input, select, textarea, button { font:inherit; color:inherit; }
+  input, select, textarea { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); }
+  textarea { min-height:70px; resize:vertical; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .row3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  button { padding:7px 12px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; margin-top:10px; }
+  button.secondary { background:transparent; color:var(--accent); }
+  .muted { color:var(--muted); font-size:12px; }
+  .bad { color:var(--bad); } .ok { color:var(--ok); } .warn { color:var(--warn); }
+  pre { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; overflow:auto; max-height:240px; font-size:12px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { text-align:left; padding:6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  video { width:100%; border-radius:6px; background:#000; }
+  .chk { display:flex; gap:6px; align-items:center; margin-top:8px; } .chk input { width:auto; }
+  details summary { cursor:pointer; color:var(--accent); margin-top:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>CCTVGPT &mdash; synthetic CCTV-style video</h1>
+  <span class="tag">All outputs are SYNTHETIC and labelled. Not for use as evidence.</span>
+  <a href="/verify">Verify a clip</a>
+</header>
+<main>
+  <div>
+    <section>
+      <h2>Account</h2>
+      <label for="apikey">API key</label>
+      <input id="apikey" type="password" placeholder="vl_cus_...">
+      <button id="connect">Connect</button>
+      <div id="account" class="muted" style="margin-top:8px"></div>
+    </section>
+    <section>
+      <h2>Generate a clip</h2>
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" placeholder="e.g. a person slips and falls in a dimly lit corridor at night"></textarea>
+      <button class="secondary" id="interpretBtn">Preview interpretation</button>
+      <pre id="interp" hidden></pre>
+      <p class="muted">Controls below override what the prompt implies. Leave on &ldquo;from prompt&rdquo; to use the prompt.</p>
+      <div class="row">
+        <div><label for="scene">Scene</label><select id="scene"></select></div>
+        <div><label for="event">Event</label><select id="event"></select></div>
+        <div><label for="time_of_day">Time of day</label><select id="time_of_day"></select></div>
+        <div><label for="weather">Weather</label><select id="weather"></select></div>
+        <div><label for="crowd_density">Crowd</label><select id="crowd_density"></select></div>
+        <div><label for="occlusion">Occlusion</label><select id="occlusion"></select></div>
+      </div>
+      <details><summary>Camera &amp; output</summary>
+        <div class="row3">
+          <div><label for="camera_height_m">Height (m)</label><input id="camera_height_m" type="number" step="0.1" placeholder="auto"></div>
+          <div><label for="camera_tilt_deg">Tilt (&deg;)</label><input id="camera_tilt_deg" type="number" step="1" placeholder="auto"></div>
+          <div><label for="camera_pan_deg">Pan (&deg;)</label><input id="camera_pan_deg" type="number" step="1" placeholder="0"></div>
+          <div><label for="fov_deg">FOV (&deg;)</label><input id="fov_deg" type="number" step="1" placeholder="70"></div>
+          <div><label for="resolution">Resolution</label><select id="resolution"></select></div>
+          <div><label for="fps">FPS</label><input id="fps" type="number" min="2" max="30" placeholder="12"></div>
+          <div><label for="duration_s">Seconds</label><input id="duration_s" type="number" min="1" max="30" step="0.5" placeholder="8"></div>
+          <div><label for="seed">Seed</label><input id="seed" type="number" min="0" placeholder="0"></div>
+        </div>
+        <div class="chk"><input type="checkbox" id="glare"><label for="glare" style="margin:0">Glare</label></div>
+      </details>
+      <details><summary>CCTV realism</summary>
+        <div class="row">
+          <div><label for="compression">Compression</label><select id="compression"></select></div>
+          <div><label for="ir_night_mode">IR night mode</label><select id="ir_night_mode"></select></div>
+          <div><label for="low_res_factor">Detail (low-res factor)</label><input id="low_res_factor" type="number" min="0.25" max="1" step="0.05" placeholder="1.0"></div>
+          <div><label for="lens_distortion">Lens distortion</label><input id="lens_distortion" type="number" min="0" max="0.5" step="0.05" placeholder="0.15"></div>
+          <div><label for="noise">Sensor noise</label><input id="noise" type="number" min="0" max="1" step="0.05" placeholder="0.35"></div>
+          <div><label for="camera_label">Camera label</label><input id="camera_label" placeholder="CAM-01"></div>
+        </div>
+      </details>
+      <label for="use_case">Declared use</label><select id="use_case"></select>
+      <div class="chk"><input type="checkbox" id="annotations" checked><label for="annotations" style="margin:0">Export ground-truth annotations</label></div>
+      <button id="generateBtn">Generate</button>
+      <details><summary>Batch: sweep conditions</summary>
+        <p class="muted">Comma-separated values for any field; one clip per combination.</p>
+        <label for="sw_weather">weather</label><input id="sw_weather" placeholder="clear,rain,fog">
+        <label for="sw_time">time_of_day</label><input id="sw_time" placeholder="day,night">
+        <label for="sw_seed">seed</label><input id="sw_seed" placeholder="1,2,3">
+        <button id="batchBtn">Submit batch</button>
+        <div id="batchOut" class="muted"></div>
+      </details>
+      <div id="genMsg" style="margin-top:8px"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Preview</h2>
+      <video id="player" controls muted loop playsinline></video>
+      <div id="clipInfo" class="muted" style="margin-top:6px">Select a finished job to preview it.</div>
+    </section>
+    <section>
+      <h2>Jobs</h2>
+      <table><thead><tr><th>Job</th><th>Status</th><th>Scene / event</th><th></th></tr></thead><tbody id="jobs"></tbody></table>
+    </section>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const FIELDS_SCENE = ["scene","event","time_of_day","weather","crowd_density","occlusion","camera_height_m","camera_tilt_deg","camera_pan_deg","fov_deg","fps","duration_s","seed"];
+const FIELDS_REALISM = ["compression","ir_night_mode","low_res_factor","lens_distortion","noise","camera_label"];
+let KEY = ""; try { KEY = localStorage.getItem("cctvgpt_key") || ""; } catch (e) {}
+$("apikey").value = KEY;
+const blobUrls = {};
+
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({"X-API-Key": KEY}, opts.headers || {});
+  const r = await fetch(path, opts);
+  const ct = r.headers.get("content-type") || "";
+  const body = ct.includes("json") ? await r.json() : await r.blob();
+  if (!r.ok) throw Object.assign(new Error("request failed"), {status: r.status, body});
+  return body;
+}
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function fill(sel, values, auto = true) {
+  sel.innerHTML = (auto ? '<option value="">from prompt</option>' : "") + values.map(v => `<option>${esc(v)}</option>`).join("");
+}
+async function loadOptions() {
+  const o = await (await fetch("/v1/options")).json();
+  fill($("scene"), o.scene); fill($("event"), o.event); fill($("time_of_day"), o.time_of_day); fill($("weather"), o.weather);
+  fill($("crowd_density"), o.crowd_density); fill($("occlusion"), o.occlusion); fill($("compression"), o.compression);
+  fill($("ir_night_mode"), o.ir_night_mode); fill($("resolution"), o.resolutions);
+  fill($("use_case"), [...o.use_cases.in_scope, ...o.use_cases.restricted], false);
+}
+function collect() {
+  const scene = {}, realism = {};
+  for (const f of FIELDS_SCENE) { const v = $(f).value; if (v !== "") scene[f] = isNaN(Number(v)) ? v : Number(v); }
+  for (const f of FIELDS_REALISM) { const v = $(f).value; if (v !== "") realism[f] = (f === "camera_label" || isNaN(Number(v))) ? v : Number(v); }
+  if ($("resolution").value) { const [w, h] = $("resolution").value.split("x").map(Number); scene.width = w; scene.height = h; }
+  if ($("glare").checked) scene.glare = true;
+  return { prompt: $("prompt").value, use_case: $("use_case").value, scene, realism, annotations: $("annotations").checked };
+}
+function showError(el, e) {
+  const b = e.body || {};
+  const msgs = (b.details && b.details.messages) || [];
+  el.innerHTML = `<span class="bad">${esc(b.reason || b.error || b.detail || e.message)}</span>` + (msgs.length ? `<br>${msgs.map(esc).join("<br>")}` : "");
+}
+async function connect() {
+  KEY = $("apikey").value.trim(); try { localStorage.setItem("cctvgpt_key", KEY); } catch (e) {}
+  try {
+    const me = await api("/v1/me");
+    const c = me.customer || {};
+    let html = `Signed in as <b>${esc(me.principal)}</b> (${esc(me.role)})`;
+    if (c.id) {
+      html += `<br>${esc(c.name)} &middot; KYC: <span class="${c.kyc_status === "verified" ? "ok" : "warn"}">${esc(c.kyc_status)}</span> &middot; tier ${esc(c.tier)}`;
+      if (c.terms_accepted_version !== me.terms_version_current) html += `<br><span class="warn">Terms of use ${esc(me.terms_version_current)} not accepted.</span> <button class="secondary" id="acceptTerms">Read &amp; accept</button>`;
+    }
+    $("account").innerHTML = html;
+    const at = $("acceptTerms");
+    if (at) at.onclick = async () => {
+      const t = await (await fetch("/v1/terms")).json();
+      if (confirm("Terms of use (" + t.version + "):\n\n" + t.text.slice(0, 1500) + "\n\n[full text: docs/TERMS_OF_USE.md]\n\nAccept?")) {
+        await api("/v1/me/accept-terms", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({version: t.version})});
+        connect();
+      }
+    };
+    refreshJobs();
+  } catch (e) { $("account").innerHTML = `<span class="bad">Could not sign in (${e.status || ""}).</span>`; }
+}
+async function refreshJobs() {
+  if (!KEY) return;
+  let jobs = [];
+  try { jobs = await api("/v1/jobs?limit=30"); } catch (e) { return; }
+  $("jobs").innerHTML = jobs.map(j => {
+    const sc = j.request.scene || {}, interp = (j.interpretation || {}).inferred_scene || {};
+    const scene = sc.scene || interp.scene || "corridor", ev = sc.event || interp.event || "none";
+    const cls = j.status === "done" ? "ok" : (j.status === "blocked" || j.status === "failed") ? "bad" : "warn";
+    const err = j.error ? `<div class="muted">${esc(j.error.reason)}</div>` : "";
+    return `<tr><td title="${esc(j.id)}">${esc(j.id.slice(4, 12))}${j.batch_id ? '<div class="muted">batch</div>' : ""}</td><td class="${cls}">${esc(j.status)}${err}</td><td>${esc(scene)} / ${esc(ev)}<div class="muted">${esc((j.request.prompt || "").slice(0, 60))}</div></td><td>${j.clip_id ? `<button class="secondary" data-job="${esc(j.id)}">View</button>` : ""}</td></tr>`;
+  }).join("");
+  document.querySelectorAll("[data-job]").forEach(b => b.onclick = () => showJob(jobs.find(j => j.id === b.dataset.job)));
+  if (jobs.some(j => j.status === "queued" || j.status === "running")) setTimeout(refreshJobs, 1500);
+}
+async function showJob(j) {
+  if (!blobUrls[j.clip_id]) blobUrls[j.clip_id] = URL.createObjectURL(await api(j.links.video));
+  $("player").src = blobUrls[j.clip_id];
+  const qa = j.qa || {};
+  const ann = await api(j.links.annotations).catch(() => null);
+  const evs = ann ? ann.events.map(e => `${e.type} @ ${e.start_time_s}s`).join(", ") : "";
+  $("clipInfo").innerHTML = `Clip <b>${esc(j.clip_id)}</b> &middot; QA ${qa.passed ? '<span class="ok">passed</span>' : '<span class="bad">failed</span>'} &middot; stability ${esc(qa.fixed_view_stability)}<br>Events: ${esc(evs || "none")}<br>` +
+    `<a href="#" data-dl="${esc(j.links.video)}|${esc(j.clip_id)}.mp4">video</a> &middot; <a href="#" data-dl="${esc(j.links.annotations)}|${esc(j.clip_id)}.annotations.json">annotations</a> &middot; <a href="#" data-dl="${esc(j.links.tracks)}|${esc(j.clip_id)}.tracks.csv">tracks</a> &middot; <a href="#" data-dl="${esc(j.links.provenance)}|${esc(j.clip_id)}.provenance.json">provenance</a>`;
+  document.querySelectorAll("[data-dl]").forEach(a => a.onclick = async (ev) => {
+    ev.preventDefault();
+    const [path, name] = a.dataset.dl.split("|");
+    let data = await api(path);
+    if (!(data instanceof Blob)) data = new Blob([JSON.stringify(data, null, 1)], {type: "application/json"});
+    const u = URL.createObjectURL(data), l = document.createElement("a"); l.href = u; l.download = name; l.click(); setTimeout(() => URL.revokeObjectURL(u), 1000);
+  });
+}
+$("connect").onclick = connect;
+$("interpretBtn").onclick = async () => {
+  try {
+    const r = await api("/v1/interpret", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({prompt: $("prompt").value})});
+    $("interp").hidden = false;
+    $("interp").textContent = (r.filter.allowed ? "Prompt allowed.\n" : "BLOCKED: " + r.filter.messages.join(" ") + "\n") + JSON.stringify(r.interpretation, null, 1);
+  } catch (e) { $("interp").hidden = false; $("interp").textContent = "Error: " + JSON.stringify(e.body); }
+};
+$("generateBtn").onclick = async () => {
+  $("genMsg").textContent = "Submitting...";
+  try { const j = await api("/v1/generate", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(collect())}); $("genMsg").innerHTML = `Queued job <b>${esc(j.id)}</b>`; refreshJobs(); }
+  catch (e) { showError($("genMsg"), e); }
+};
+$("batchBtn").onclick = async () => {
+  const sweep = {};
+  const split = (v, num) => v.split(",").map(s => s.trim()).filter(Boolean).map(s => num ? Number(s) : s);
+  if ($("sw_weather").value) sweep.weather = split($("sw_weather").value);
+  if ($("sw_time").value) sweep.time_of_day = split($("sw_time").value);
+  if ($("sw_seed").value) sweep.seed = split($("sw_seed").value, true);
+  try {
+    const r = await api("/v1/batches", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({base: collect(), sweep})});
+    $("batchOut").innerHTML = `Batch ${esc(r.batch_id)}: ${r.jobs.length} jobs queued. <a href="#" id="dlBatch">Download zip when done</a>`;
+    $("dlBatch").onclick = async (ev) => { ev.preventDefault(); const b = await api(`/v1/batches/${r.batch_id}/export.zip`); const u = URL.createObjectURL(b), l = document.createElement("a"); l.href = u; l.download = r.batch_id + ".zip"; l.click(); };
+    refreshJobs();
+  } catch (e) { showError($("batchOut"), e); }
+};
+loadOptions().then(() => { if (KEY) connect(); });
+</script>
+</body>
+</html>

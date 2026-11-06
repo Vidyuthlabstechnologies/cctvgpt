@@ -1,0 +1,32 @@
+# Names of real public figures blocked by the prompt filter (SR-6).
+# SAMPLE LIST ONLY. Generic personal names are caught by the capitalised-name
+# heuristic in content_filter.py; this list covers lower-case or single-token
+# references to well-known people. The compliance owner must maintain it
+# [VERIFY coverage].
+modi
+narendra modi
+rahul gandhi
+sonia gandhi
+amit shah
+kejriwal
+mamata banerjee
+yogi adityanath
+gandhi
+nehru
+ambedkar
+ambani
+adani
+tata
+shah rukh
+salman khan
+amitabh
+virat kohli
+sachin tendulkar
+dhoni
+trump
+biden
+obama
+putin
+elon musk
+musk
+zuckerberg
