@@ -17,9 +17,14 @@ PACKAGE_VERSION = "0.1.0"
 # The procedural simulation renderer (PRD section 8, Option B). Bump this whenever
 # rendering output for a given (prompt, params, seed) can change, so that
 # reproducibility claims stay truthful.
-RENDERER_VERSION = "sim-1.0.0"
+RENDERER_VERSION = "sim-1.1.0"
 WATERMARK_SCHEME = "vl-ss-dct-v1"
 MANIFEST_SCHEMA = "cctvgpt.provenance/1"
+# Unique identifier of this computer resource, embedded in every output's
+# permanent metadata (IT Rules 2026 amendment: SGI must carry "permanent
+# metadata ... including a unique identifier" of the intermediary's computer
+# resource [VERIFY exact wording against the Gazette notification]).
+PLATFORM_ID = "in.vidyuthlabs.cctvgpt"
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -39,9 +44,12 @@ def _env_int(name: str, default: int | None) -> int | None:
 @dataclass
 class Settings:
     data_dir: Path = field(default_factory=lambda: Path(os.environ.get("CCTVGPT_DATA_DIR", "data")).resolve())
-    # SR-9: clean (unlabelled) exports. Disabled platform-wide until counsel
-    # confirms legality [VERIFY with counsel]. Even when enabled, a customer
-    # needs an enterprise contract reference on file.
+    # SR-9: clean (unlabelled) exports. Disabled platform-wide. The IT Rules 2026
+    # amendment requires intermediaries enabling SGI creation to "prevent any
+    # modification, suppression or removal of the label", which this exception
+    # likely conflicts with. Do not enable for India without written sign-off
+    # from counsel (docs/COMPLIANCE.md). Even when enabled, a customer needs an
+    # enterprise contract reference on file.
     clean_export_enabled: bool = field(default_factory=lambda: _env_bool("CCTVGPT_CLEAN_EXPORT_ENABLED", False))
     # SR-7: audit-log retention in days. [OPEN] to be set by counsel; None means
     # "retain indefinitely" until a period is decided.

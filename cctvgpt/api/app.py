@@ -52,6 +52,10 @@ class BatchBody(BaseModel):
     sweep: dict = Field(default_factory=dict)
 
 
+class EvaluateBody(BaseModel):
+    predictions: dict = Field(description="{clip_id: {frames: [...], events: [...]}} in the format documented in cctvgpt/evaluation.py")
+
+
 class InterpretBody(BaseModel):
     prompt: str
 
@@ -241,6 +245,29 @@ def create_app(platform: Platform | None = None, workers: int | None = None) -> 
         data = batch_zip(platform, batch_id, p.customer_id)
         st.audit(p.principal, "batch_exported", {"batch_id": batch_id, "bytes": len(data)}, p.customer_id)
         return Response(data, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{batch_id}.zip"'})
+
+    @app.post("/v1/batches/{batch_id}/evaluate")
+    def batch_evaluate(batch_id: str, body: EvaluateBody, format: str = Query("json"), p: Principal = Depends(customer_user)):
+        """Acceptance testing: score the customer's detector outputs against the batch's exact ground truth."""
+        from ..evaluation import scorecard, scorecard_html
+
+        jobs = st.q("SELECT clip_id FROM jobs WHERE batch_id=? AND customer_id=? AND status='done'", (batch_id, p.customer_id))
+        if not jobs:
+            raise HTTPException(404, "no finished clips in this batch")
+        anns = {}
+        for j in jobs:
+            clip = st.clip(j["clip_id"])
+            path = Path(clip["path"]).parent / f"{clip['id']}.annotations.json"
+            if path.exists():
+                anns[clip["id"]] = json.loads(path.read_text())
+        unknown = sorted(set(body.predictions) - set(anns))
+        if unknown:
+            raise HTTPException(422, f"predictions for clips not in this batch: {unknown[:5]}")
+        card = scorecard(anns, body.predictions)
+        st.audit(p.principal, "evaluation_scored", {"batch_id": batch_id, "clips": len(anns), "missing": len(card["missing_predictions"])}, p.customer_id)
+        if format == "html":
+            return HTMLResponse(scorecard_html(card, f"Acceptance test - batch {batch_id}"))
+        return card
 
     @app.get("/v1/jobs")
     def list_jobs(limit: int = Query(50, le=500), p: Principal = Depends(customer_user)):

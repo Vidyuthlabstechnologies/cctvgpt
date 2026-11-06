@@ -60,8 +60,20 @@ class SimRenderer:
         if not params.outdoor and params.weather != "clear":
             self.notes.append(f"weather '{params.weather}' has no effect in indoor scene '{params.scene}'")
             self.weather = "clear"
+        if params.event_distance_m:
+            self._stage_event_at(params.event_distance_m)
         self.cast: Cast = build_cast(self.layout, params.event, params.crowd_density, _rng(params.seed, "cast"), params.duration_s)
         self._build_background()
+
+    def _stage_event_at(self, dist: float) -> None:
+        """Move the event staging point to a ground distance along the camera's view direction."""
+        cx, cy = self.layout.camera_xy
+        pan = np.radians(self.p.camera_pan_deg)
+        xmin, xmax, _, _ = self.layout.walk_area
+        x = float(np.clip(cx + dist * np.sin(pan), xmin, xmax))
+        y = float(cy + dist * np.cos(pan))
+        self.layout.hazard_point = (x, y)
+        self.layout.drop_point = (float(np.clip(x + 1.0, xmin, xmax)), y - 0.5)
 
     # ------------------------------------------------------------------
     def _build_background(self) -> None:
@@ -246,10 +258,13 @@ class SimRenderer:
         vis_frac = float(visible[2].sum() / max(amodal[2].sum(), 1e-6))
         if vis_frac < 0.02:
             return None
+        involuntary = person.role == "victim"
         if st.fall_angle > 1.2:
-            state = "fallen"
-        elif st.fall_angle > 0.05:
-            state = "falling"
+            state = "fallen" if involuntary else "lying"
+        elif st.fall_angle > 0.05 or (involuntary and st.crouch > 0.05):
+            state = "falling" if involuntary else "lying_down"
+        elif st.crouch > 0.3:
+            state = "crouching"
         elif st.speed > 2.0:
             state = "running"
         elif st.speed > 0.1:

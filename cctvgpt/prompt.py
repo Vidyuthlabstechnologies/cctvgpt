@@ -24,6 +24,8 @@ _RULES: dict[str, list[tuple[object, str]]] = {
         ("intrusion", r"\b(intru\w*|trespass\w*|break[- ]?in|restricted area|unauthori[sz]ed|climb\w* (?:over|the) fence)\b"),
         ("fire", r"\b(fire|flames?|burning|smoke)\b"),
         ("crowd_surge", r"\b(crowd surge|surge|stampede|crush|crowd runs?|people run\w*|panic)\b"),
+        ("lie_down", r"\b(lies? down|lying down to rest|reclin\w*|lies on the (?:floor|ground) deliberately)\b"),
+        ("crouch", r"\b(crouch\w*|squat\w*|bends? down|picks? (?:something )?up|ties? (?:a |his |her )?shoe\w*)\b"),
         ("abandoned_object", r"\b(abandon\w*|unattended|left (?:behind|a|an|the)|suspicious (?:bag|package|object)|drops? (?:a|the) bag)\b"),
     ],
     "time_of_day": [

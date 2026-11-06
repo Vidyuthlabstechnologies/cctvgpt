@@ -9,11 +9,12 @@ Prompt-based generation of realistic, fixed-camera, CCTV-style clips for trainin
 ## What it does
 
 * **Text prompt to clip.** A prompt such as *"a person slips and falls in a dimly lit corridor at night"* maps onto a closed set of controls. The controls are scene, event, time of day, weather, camera height/tilt/pan/FOV, resolution, frame rate and duration, and explicit parameters override the prompt. The response reports what was understood, which words were ignored and any conflicts.
-* **Event library:** fall, intrusion into a restricted zone, fire (flame, smoke and light), crowd surge, abandoned object, or no event, in three scenes (corridor, parking lot, warehouse).
+* **Event library:** fall, intrusion into a restricted zone, fire (flame, smoke and light), crowd surge, abandoned object, or no event, in three scenes (corridor, parking lot, warehouse). Also **hard-negative "confuser" events** (walk-through, crouch, deliberate lie-down), annotated `alarm: false`, which cause most false alarms in real deployments. `event_distance_m` stages an event at a chosen distance from the camera.
 * **CCTV realism:** auto-exposure, IR night mode with illuminator falloff, barrel lens distortion, bloom and glare, vignetting, sensor noise scaled to light level, JPEG/H.264 compression artifacts, resolution loss, and an on-screen timestamp marked `SYN` that uses a fixed simulation epoch (year 2000).
 * **Exact ground truth:** per-frame boxes (corrected for lens distortion), track IDs, visibility under occlusion, actor states (walking / falling / fallen / running), event start and end frames, and restricted-zone polygons, exported as JSON plus MOT-style CSV.
 * **Reproducible:** the same parameters and seed give bit-identical frames for a given renderer version, which is recorded in every manifest.
 * **Safeguards:** visible label, robust invisible watermark, Ed25519-signed provenance embedded in the MP4, a public verification page, KYC-gated access, prompt filtering, a hash-chained audit log, terms of use, a misuse-reporting channel, a contract-gated clean-export exception, and a release gate owned by the safeguards owner.
+* **Acceptance testing:** submit a detector's outputs for a generated batch and get a scorecard: precision, recall and AP, broken down by condition, object size and actor state, plus event detection rate, latency and false alarms (`cctvgpt/evaluation.py`, `POST /v1/batches/{id}/evaluate`, `cctvgpt evaluate`).
 * **Interfaces:** web dashboard, REST API (single clips, parameter-sweep batches, zip export) and an operator CLI.
 
 ### Technical approach
@@ -98,6 +99,7 @@ Data (SQLite database, keys, clips) lives in `./data`, or wherever `CCTVGPT_DATA
 | `POST /v1/generate[?wait=true]` | customer | Queue or run one clip |
 | `POST /v1/batches` | customer | Parameter sweep, e.g. `{"sweep": {"weather": ["clear","rain"], "seed": [1,2,3]}}` |
 | `GET /v1/jobs`, `/v1/jobs/{id}`, `/v1/batches/{id}[/export.zip]` | customer | Status and downloads |
+| `POST /v1/batches/{id}/evaluate[?format=html]` | customer | Acceptance test: score detector outputs against the batch's ground truth |
 | `GET /v1/clips/{id}/video` and `/annotations`, `/tracks`, `/provenance` | owning customer | Outputs |
 | `/v1/admin/...` | admin | Customers, KYC, API keys, audit log and chain check, misuse reports, full verification |
 | `POST /v1/releases/selftest`, `POST /v1/releases/decide` | safeguards owner | Release gate (SR-10) |
@@ -118,14 +120,23 @@ Authentication uses the `X-API-Key` header. There is no anonymous generation.
 | FR-8 | Stable background and camera view | Fixed camera, static background rendered once, exposure fixed per clip; `fixed_view_stability` QA metric |
 | SR-1 | Persistent visible "SYNTHETIC" marking | `safeguards/label.py` (two corner badges plus a tiled pattern); checked on every frame before release |
 | SR-2 | Robust invisible watermark | `safeguards/watermark.py`; results below and in [docs/SAFEGUARDS.md](docs/SAFEGUARDS.md) |
-| SR-3 | Signed provenance metadata | `safeguards/provenance.py`: Ed25519, C2PA-aligned fields, embedded in MP4 and sidecar |
+| SR-3 | Signed provenance metadata | `safeguards/provenance.py`: Ed25519, C2PA-aligned fields, embedded in MP4 and sidecar; includes the platform unique identifier (`platform_uid`) required by the IT Rules 2026 |
 | SR-4 | Public verification page | `verify.py`, `/verify`, `POST /v1/verify` |
 | SR-5 | Business KYC, no anonymous access | `store.py` customers/API keys; `pipeline.check_customer` |
 | SR-6 | Prompt and output filtering | `safeguards/content_filter.py` (prompts); closed vocabulary; release QA gate on outputs |
 | SR-7 | Audit logs | Hash-chained `audit` table; `cctvgpt audit verify`; retention via `CCTVGPT_AUDIT_RETENTION_DAYS` **[OPEN]** |
 | SR-8 | Terms of use and misuse channel | [docs/TERMS_OF_USE.md](docs/TERMS_OF_USE.md), [docs/MISUSE_POLICY.md](docs/MISUSE_POLICY.md), `POST /v1/misuse-reports` |
-| SR-9 | Clean-export exception | Off by default (`CCTVGPT_CLEAN_EXPORT_ENABLED`); also needs an enterprise contract and a `feature/clean_export` approval; watermark, metadata and logging retained |
+| SR-9 | Clean-export exception | Off by default (`CCTVGPT_CLEAN_EXPORT_ENABLED`); also needs an enterprise contract and a `feature/clean_export` approval; watermark, metadata and logging retained. **Likely conflicts with the IT Rules 2026 duty to prevent label removal; recommended for withdrawal in India** ([docs/COMPLIANCE.md](docs/COMPLIANCE.md)) |
 | SR-10 | Release gate | `release_gate.py`: approval requires a passing safeguards self-test; generation refuses unapproved versions |
+
+## Evidence on real data
+
+`benchmarks/` tests the product against real footage and published research. See [benchmarks/README.md](benchmarks/README.md) for the protocol, results and limits:
+
+* `fall_sim2real.py`: does synthetic data help detect *real* falls? Uses the UR Fall Detection Dataset (internal evaluation only, CC BY-NC-SA).
+* `stress_test_detector.py`: an off-the-shelf COCO person detector, scored across conditions on a CCTVGPT suite. This demonstrates acceptance testing and probes realism.
+
+Strategy and compliance are covered in [docs/STRATEGY.md](docs/STRATEGY.md) and [docs/COMPLIANCE.md](docs/COMPLIANCE.md). The latter includes the February 2026 IT Rules SGI amendment, the DPDP Rules 2025 and EU AI Act Article 50.
 
 ## Measured results (this build)
 
@@ -161,8 +172,13 @@ cctvgpt/
   store.py                    customers, keys, clips, jobs, audit, misuse, releases
   release_gate.py             SR-10 gate and safeguards self-test
   jobs.py                     queue, batches, export
+  evaluation.py               acceptance-testing scorecards
   api/                        FastAPI app and static dashboard / verify pages
   cli.py                      operator CLI
+benchmarks/
+  download_urfd.py            fetch the URFD real fall dataset (licence-restricted, not committed)
+  fall_sim2real.py            synthetic-to-real fall detection experiment
+  stress_test_detector.py     acceptance-test demo with a COCO detector
 scripts/
   eval_watermark.py           SR-2 robustness evaluation
   feasibility_set.py          Phase 1 single-scene test set with review sheet

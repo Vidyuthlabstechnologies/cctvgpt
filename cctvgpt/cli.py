@@ -135,6 +135,20 @@ def cmd_audit(p: Platform, a) -> None:
         _print({"removed": p.store.purge_audit(days, "cli:purge")})
 
 
+def cmd_evaluate(_p: Platform, a) -> None:
+    from .evaluation import load_json, scorecard, scorecard_html
+
+    anns = {}
+    for f in sorted(Path(a.annotations).glob("**/*.annotations.json")):
+        d = load_json(f)
+        anns[d["clip_id"]] = d
+    preds = load_json(a.predictions)
+    card = scorecard(anns, preds)
+    if a.html:
+        Path(a.html).write_text(scorecard_html(card))
+    _print(card["overall"])
+
+
 def cmd_serve(_p: Platform, a) -> None:
     import uvicorn
 
@@ -191,6 +205,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("-n", type=int, default=20)
     s.add_argument("--days", type=int, default=None)
 
+    s = sub.add_parser("evaluate", help="acceptance-test a detector's outputs against clip ground truth")
+    s.add_argument("--annotations", required=True, help="directory containing *.annotations.json files")
+    s.add_argument("--predictions", required=True, help="JSON file {clip_id: {frames: [...], events: [...]}}")
+    s.add_argument("--html", help="also write an HTML scorecard here")
+
     s = sub.add_parser("serve", help="run the API and dashboard")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000)
@@ -201,7 +220,7 @@ def main(argv=None) -> None:
     a = build_parser().parse_args(argv)
     p = Platform.open()
     {"init": cmd_init, "customer": cmd_customer, "release": cmd_release, "generate": cmd_generate,
-     "verify": cmd_verify, "audit": cmd_audit, "serve": cmd_serve}[a.cmd](p, a)
+     "verify": cmd_verify, "audit": cmd_audit, "evaluate": cmd_evaluate, "serve": cmd_serve}[a.cmd](p, a)
 
 
 if __name__ == "__main__":

@@ -142,22 +142,35 @@ def ev_fall(layout, rng, duration, cast: Cast, next_id):
     approach /= np.linalg.norm(approach)
     start = np.array([hx, hy]) + approach * speed * t_fall
     walk = path_script([start, (hx, hy)], speed, 0.0)
-    fall_dur = float(rng.uniform(0.6, 0.9))
-    fall_dir = float(rng.uniform(-1.2, 1.2)) + math.pi  # fall roughly forward (towards camera)
+    # Fall mechanics: a fast trip/slip, a knee-buckling collapse, or a slow slump.
+    # Real falls in staged datasets (e.g. URFD) take ~1 s from standing to low,
+    # so a library of only fast trips is biased (see benchmarks/README.md).
+    style = str(rng.choice(["trip", "collapse", "slump"], p=[0.4, 0.35, 0.25]))
+    if style == "trip":
+        buckle, fall_dur = 0.0, float(rng.uniform(0.6, 0.9))
+    elif style == "collapse":
+        buckle, fall_dur = float(rng.uniform(0.4, 0.9)), float(rng.uniform(0.5, 0.9))
+    else:
+        buckle, fall_dur = float(rng.uniform(0.2, 0.5)), float(rng.uniform(1.2, 2.0))
+    # Forward, sideways or backward relative to the walking direction.
+    fall_dir = float(rng.choice([0.0, math.pi / 2, -math.pi / 2, math.pi])) + float(rng.uniform(-0.5, 0.5)) + math.pi
     heading = _heading(hx - start[0], hy - start[1])
+    buckle_depth = float(rng.uniform(0.5, 0.8)) if buckle else 0.0
 
     def script(t):
         if t < t_fall:
             return walk(t)
-        k = min(1.0, (t - t_fall) / fall_dur)
+        dt = t - t_fall
+        if dt < buckle:
+            return PersonState(hx, hy, heading, 0.0, 0.0, fall_dir=heading + (fall_dir - math.pi), crouch=buckle_depth * dt / buckle)
+        k = min(1.0, (dt - buckle) / fall_dur)
         ang = (math.pi / 2) * (k * k)  # accelerate under gravity
-        # Small residual movement while on the ground.
         wig = 0.03 * math.sin(t * 2.0) if k >= 1.0 else 0.0
-        return PersonState(hx, hy, heading, 0.0, 0.0, fall_angle=ang + wig, fall_dir=heading + (fall_dir - math.pi))
+        return PersonState(hx, hy, heading, 0.0, 0.0, fall_angle=ang + wig, fall_dir=heading + (fall_dir - math.pi), crouch=buckle_depth * (1 - k))
 
     victim.script = script
     cast.people.append(victim)
-    cast.events.append(EventSpec("fall", t_fall, duration, [victim.track_id], {"fall_duration_s": round(fall_dur, 3), "ground_point": [hx, hy]}))
+    cast.events.append(EventSpec("fall", t_fall, duration, [victim.track_id], {"fall_style": style, "fall_duration_s": round(buckle + fall_dur, 3), "ground_point": [hx, hy]}))
     return next_id + 1
 
 
@@ -305,6 +318,92 @@ def ev_abandoned_object(layout, rng, duration, cast: Cast, next_id):
     return next_id + 2
 
 
+# ---------------------------------------------------------------------------
+# Hard negatives ("confusers"): everyday actions that a naive fall or intrusion
+# detector confuses with an alarm event. They are annotated with alarm=False.
+
+
+def _single_actor_walk_in(layout, rng, duration, t_action):
+    hx, hy = layout.hazard_point
+    speed = float(rng.uniform(0.9, 1.3))
+    approach = np.array([float(rng.uniform(-0.6, 0.6)), 1.0])
+    approach /= np.linalg.norm(approach)
+    start = np.array([hx, hy]) + approach * speed * t_action
+    walk = path_script([start, (hx, hy)], speed, 0.0)
+    heading = _heading(hx - start[0], hy - start[1])
+    return walk, heading, (hx, hy)
+
+
+def ev_crouch(layout, rng, duration, cast: Cast, next_id):
+    p = Person.random(next_id, rng, role="actor")
+    t0 = float(rng.uniform(0.25, 0.4)) * duration
+    walk, heading, (hx, hy) = _single_actor_walk_in(layout, rng, duration, t0)
+    down = float(rng.uniform(0.7, 1.2))
+    hold = float(rng.uniform(1.0, 2.5))
+    depth = float(rng.uniform(0.6, 1.0))
+
+    def script(t):
+        if t < t0:
+            return walk(t)
+        dt = t - t0
+        if dt < down:
+            c = depth * (dt / down)
+        elif dt < down + hold:
+            c = depth
+        else:
+            c = max(0.0, depth * (1 - (dt - down - hold) / down))
+        return PersonState(hx, hy, heading, 0.0, 0.0, crouch=c)
+
+    p.script = script
+    cast.people.append(p)
+    cast.events.append(EventSpec("crouch", t0, min(duration, t0 + 2 * down + hold), [p.track_id], {"alarm": False}))
+    return next_id + 1
+
+
+def ev_lie_down(layout, rng, duration, cast: Cast, next_id):
+    """A deliberate, controlled lie-down (e.g. resting): crouch first, then recline slowly."""
+    p = Person.random(next_id, rng, role="actor")
+    t0 = float(rng.uniform(0.2, 0.3)) * duration
+    walk, heading, (hx, hy) = _single_actor_walk_in(layout, rng, duration, t0)
+    crouch_t = float(rng.uniform(0.8, 1.4))
+    recline_t = float(rng.uniform(1.5, 2.5))
+    side = float(rng.choice([-1.0, 1.0])) * math.pi / 2
+
+    def script(t):
+        if t < t0:
+            return walk(t)
+        dt = t - t0
+        if dt < crouch_t:
+            return PersonState(hx, hy, heading, 0.0, 0.0, crouch=0.8 * dt / crouch_t)
+        k = min(1.0, (dt - crouch_t) / recline_t)
+        k = k * k * (3 - 2 * k)  # smooth, no gravity acceleration
+        return PersonState(hx, hy, heading, 0.0, 0.0, fall_angle=k * math.pi / 2, fall_dir=heading + side, crouch=0.8 * (1 - k))
+
+    p.script = script
+    cast.people.append(p)
+    cast.events.append(EventSpec("lie_down", t0, duration, [p.track_id], {"alarm": False, "duration_s": round(crouch_t + recline_t, 3)}))
+    return next_id + 1
+
+
+def ev_walk(layout, rng, duration, cast: Cast, next_id):
+    """A single person walks through, sometimes pausing (the most common non-event)."""
+    p = Person.random(next_id, rng, role="actor")
+    hx, hy = layout.hazard_point
+    speed = float(rng.uniform(0.8, 1.5))
+    ang = float(rng.uniform(-0.8, 0.8))
+    d = np.array([math.sin(ang), math.cos(ang)])
+    half = speed * duration * 0.5
+    a, b = np.array([hx, hy]) + d * half, np.array([hx, hy]) - d * half
+    if rng.random() < 0.5:
+        a, b = b, a
+    pauses = [(1, float(rng.uniform(0.5, 2.0)))] if rng.random() < 0.5 else None
+    mid = (a + b) / 2
+    p.script = path_script([a, mid, b], speed, 0.0, pauses=pauses)
+    cast.people.append(p)
+    cast.events.append(EventSpec("walk", 0.0, duration, [p.track_id], {"alarm": False}))
+    return next_id + 1
+
+
 EVENT_BUILDERS = {
     "none": ev_none,
     "fall": ev_fall,
@@ -312,7 +411,12 @@ EVENT_BUILDERS = {
     "fire": ev_fire,
     "crowd_surge": ev_crowd_surge,
     "abandoned_object": ev_abandoned_object,
+    "crouch": ev_crouch,
+    "lie_down": ev_lie_down,
+    "walk": ev_walk,
 }
+
+ALARM_EVENTS = {"fall", "intrusion", "fire", "crowd_surge", "abandoned_object"}
 
 
 def build_cast(layout: SceneLayout, event: str, density: str, rng, duration: float) -> Cast:
@@ -320,4 +424,6 @@ def build_cast(layout: SceneLayout, event: str, density: str, rng, duration: flo
     next_id = 100
     next_id = EVENT_BUILDERS[event](layout, rng, duration, cast, next_id)
     cast.people.extend(background(layout, density if event != "crowd_surge" else "low", rng, duration, first_id=1))
+    for ev in cast.events:
+        ev.details.setdefault("alarm", ev.type in ALARM_EVENTS)
     return cast

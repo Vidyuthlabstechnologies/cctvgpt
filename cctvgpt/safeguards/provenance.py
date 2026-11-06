@@ -52,6 +52,7 @@ def build_manifest(
     return {
         "schema": config.MANIFEST_SCHEMA,
         "claim_generator": f"{config.GENERATOR_NAME}/{config.PACKAGE_VERSION}",
+        "platform_uid": f"{config.PLATFORM_ID}:{key_id}",
         "clip_id": clip_id,
         "created_at": created_at,
         "synthetic": True,

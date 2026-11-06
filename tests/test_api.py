@@ -133,3 +133,25 @@ def test_release_decision_by_safeguards_owner(client, keys):
     assert client.get("/v1/health").json()["renderer_approved"] is False
     r = client.post("/v1/releases/decide", json={"decision": "approved", "notes": "resume"}, headers=H(keys["owner"]))
     assert r.status_code == 200 and r.json()["status"] == "approved"
+
+
+def test_batch_acceptance_test_endpoint(client, keys, platform):
+    import json as _json
+
+    cid, key = _onboard(client, keys)
+    platform.store.set_kyc(cid, "verified", "ref", "admin")
+    platform.store.accept_terms(cid, TERMS_VERSION, "alice")
+    r = client.post("/v1/batches", json={"base": {"scene": {**FAST, "event": "fall", "crowd_density": "empty"}}, "sweep": {"time_of_day": ["day", "night"]}}, headers=H(key)).json()
+    preds = {}
+    for jid in r["jobs"]:
+        j = _wait(client, key, jid)
+        ann = client.get(j["links"]["annotations"], headers=H(key)).json()
+        preds[j["clip_id"]] = {"frames": [{"frame": f["frame"], "detections": [{"bbox": o["bbox"], "score": 0.9, "class": o["class"]} for o in f["objects"]]} for f in ann["frames"]], "events": []}
+    card = client.post(f"/v1/batches/{r['batch_id']}/evaluate", json={"predictions": preds}, headers=H(key)).json()
+    assert card["overall"]["detection"]["person"]["recall"] == 1.0
+    assert set(card["by_condition"]["time_of_day"]) == {"day", "night"}
+    html_ = client.post(f"/v1/batches/{r['batch_id']}/evaluate?format=html", json={"predictions": preds}, headers=H(key))
+    assert "Acceptance test" in html_.text
+    bad = client.post(f"/v1/batches/{r['batch_id']}/evaluate", json={"predictions": {"clip_nope": {}}}, headers=H(key))
+    assert bad.status_code == 422
+    _ = _json

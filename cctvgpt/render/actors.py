@@ -28,6 +28,7 @@ class PersonState:
     fall_dir: float = 0.0  # direction of fall in the ground plane
     carrying: bool = False
     visible: bool = True
+    crouch: float = 0.0  # 0 standing, 1 deep squat (knees bent, torso leaning forward)
 
 
 @dataclass
@@ -85,6 +86,8 @@ def skeleton(person: Person, st: PersonState) -> dict:
         j["l_hand"] = limb(j["l_sh"], arm, 0.62 * h)
         j["r_hand"] = limb(j["r_sh"], -arm, 0.62 * h)
 
+    if st.crouch > 0:
+        _apply_crouch(j, st.crouch, h)
     names = list(j)
     pts = np.array([j[n] for n in names], dtype=np.float64)
     if st.fall_angle > 0:
@@ -106,6 +109,25 @@ def skeleton(person: Person, st: PersonState) -> dict:
     wy = -pts[:, 0] * s + pts[:, 1] * c + st.y
     world = np.stack([wx, wy, pts[:, 2]], axis=-1)
     return dict(zip(names, world))
+
+
+def _apply_crouch(j: dict, crouch: float, h: float) -> None:
+    """Bend the knees so the feet stay on the ground, and lean the torso forward."""
+    a = min(1.0, crouch) * 1.2  # thigh angle from vertical
+    b = min(1.0, crouch) * 0.6  # torso lean
+    thigh, shin = 0.48 * h, 0.47 * h
+    hip0 = 0.95 * h
+    hipz = (thigh + shin) * math.cos(a)
+    for name in ("hip", "neck", "head", "l_sh", "r_sh", "l_hand", "r_hand"):
+        x, y, z = j[name]
+        u = z - hip0
+        j[name] = (x, y + u * math.sin(b), hipz + u * math.cos(b))
+    for side in ("l", "r"):
+        x = j[f"{side}_hip"][0]
+        j[f"{side}_hip"] = (x, 0.0, hipz)
+        knee = (x, math.sin(a) * thigh, hipz - math.cos(a) * thigh)
+        j[f"{side}_knee"] = knee
+        j[f"{side}_foot"] = (x, knee[1] - math.sin(a) * shin, max(0.0, knee[2] - math.cos(a) * shin))
 
 
 BONES = [

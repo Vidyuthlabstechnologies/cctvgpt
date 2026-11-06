@@ -7,3 +7,5 @@ __pycache__/
 *.mp4
 !docs/**/*.mp4
 .venv/
+/external_data/
+*.npz

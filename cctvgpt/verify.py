@@ -71,7 +71,7 @@ def verify_file(platform: Platform, path: Path, full_details: bool = False) -> d
             "signature_valid": sig_ok,
             "signature_detail": sig.reason,
             "video_stream_matches_manifest": stream_ok,
-            "manifest": {k: m.get(k) for k in ("clip_id", "created_at", "claim_generator", "generator", "declared_use", "synthetic", "visible_label", "disclaimer")} if sig_ok else None,
+            "manifest": {k: m.get(k) for k in ("clip_id", "created_at", "claim_generator", "platform_uid", "generator", "declared_use", "synthetic", "visible_label", "disclaimer")} if sig_ok else None,
         }
         if sig_ok and full_details:
             checks["provenance"]["manifest"]["customer_id"] = m.get("customer_id")

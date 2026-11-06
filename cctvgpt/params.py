@@ -16,7 +16,9 @@ from typing import Any
 SCENES = ("corridor", "parking_lot", "warehouse")
 TIMES_OF_DAY = ("day", "dusk", "night")
 WEATHER = ("clear", "rain", "fog", "snow")
-EVENTS = ("none", "fall", "intrusion", "fire", "crowd_surge", "abandoned_object")
+EVENTS = ("none", "fall", "intrusion", "fire", "crowd_surge", "abandoned_object", "walk", "crouch", "lie_down")
+# Non-alarm "confuser" events, used as hard negatives when training or testing detectors.
+HARD_NEGATIVE_EVENTS = ("walk", "crouch", "lie_down")
 CROWD_DENSITY = ("empty", "low", "medium", "high")
 OCCLUSION = ("none", "light", "heavy")
 COMPRESSION = ("none", "low", "medium", "high")
@@ -69,6 +71,9 @@ class SceneParams:
     fps: int = 12
     duration_s: float = 8.0
     seed: int = 0
+    # Ground distance from the camera at which the event happens (fall, fire,
+    # abandoned object, hard negatives). 0 = the scene's default staging point.
+    event_distance_m: float = 0.0
 
     def validate(self, max_duration_s: float = 30.0) -> None:
         _check_choice("scene", self.scene, SCENES)
@@ -85,6 +90,8 @@ class SceneParams:
             raise ParamError(f"resolution {self.width}x{self.height} is not one of {RESOLUTIONS}")
         _check_range("fps", self.fps, 2, 30)
         _check_range("duration_s", self.duration_s, 1.0, max_duration_s)
+        if self.event_distance_m and not (2.0 <= self.event_distance_m <= 40.0):
+            raise ParamError("event_distance_m must be 0 (scene default) or within [2, 40]")
         if not (0 <= int(self.seed) < 2**32):
             raise ParamError("seed must be in [0, 2^32)")
         if self.scene == "corridor" and self.camera_height_m > 2.9:
@@ -203,6 +210,7 @@ def option_schema() -> dict:
             "fov_deg": [40.0, 110.0],
             "fps": [2, 30],
             "duration_s": [1.0, 30.0],
+            "event_distance_m": [2.0, 40.0],
             "low_res_factor": [0.25, 1.0],
             "lens_distortion": [0.0, 0.5],
             "noise": [0.0, 1.0],
