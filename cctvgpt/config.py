@@ -62,6 +62,11 @@ class Settings:
     max_duration_s: int = field(default_factory=lambda: _env_int("CCTVGPT_MAX_DURATION_S", 30) or 30)
     max_batch_size: int = field(default_factory=lambda: _env_int("CCTVGPT_MAX_BATCH", 50) or 50)
     worker_threads: int = field(default_factory=lambda: _env_int("CCTVGPT_WORKERS", 2) or 2)
+    # Forensic search: folders the server may ingest from (colon-separated). Ingest
+    # requests for any other path are refused, so the API cannot read arbitrary files.
+    search_roots: list = field(default_factory=lambda: [Path(p).resolve() for p in os.environ.get("CCTVGPT_SEARCH_ROOTS", "").split(":") if p])
+    # "en" (default) or "multilingual" (Hindi and other Indian-language queries).
+    search_model: str = field(default_factory=lambda: os.environ.get("CCTVGPT_SEARCH_MODEL", "en"))
 
     @property
     def db_path(self) -> Path:
@@ -70,6 +75,17 @@ class Settings:
     @property
     def clips_dir(self) -> Path:
         return self.data_dir / "clips"
+
+    @property
+    def search_dir(self) -> Path:
+        return self.data_dir / "search"
+
+    @property
+    def evidence_inbox(self) -> Path:
+        return self.data_dir / "evidence_inbox"
+
+    def allowed_search_roots(self) -> list:
+        return [self.evidence_inbox.resolve(), *self.search_roots]
 
     @property
     def keys_dir(self) -> Path:

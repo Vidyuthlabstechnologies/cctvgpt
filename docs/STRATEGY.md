@@ -2,6 +2,26 @@
 
 **Status:** a draft for the CEO, written alongside the Phase 1 build. Market figures are third-party estimates that disagree with one another, so they are marked **[VERIFY]**. Nothing here substitutes for the Phase 0 customer interviews.
 
+## 0. Update: footage search is the lead product
+
+The founders' goal is **search**: finding specific photos, clips and moments across galleries, videos and CCTV records, including noisy night footage, mainly for Indian police. The synthetic generator becomes the engine behind that product, not the product itself:
+
+| Role | What it does |
+|---|---|
+| **Search (lead product, for police and enterprises)** | Plain-language or photo search over footage; case-linked and audited; custody-preserving export (docs/SEARCH.md). On real footage the top-10 precision was 1.0 by day and 0.7–1.0 on degraded night footage. Weak spots measured: Hindi queries (chance level today), colour on IR footage, white/black clothing |
+| **Generator as test bench** | Exact ground truth for night, IR, rain, fog and occlusion, used to *prove* search and analytics accuracy to buyers. This is Certify, below |
+| **Generator as training engine** | Paired day/night/IR renders to fine-tune search for night robustness. This is ScenarioLab, below |
+| **Verify** | Keeps synthetic footage out of investigations: search flags CCTVGPT-generated clips automatically |
+
+The competitive set for search includes BriefCam (Canon), Genetec and Milestone add-ons, and Indian analytics vendors on Safe City projects. We would differentiate on:
+- Indian conditions (night, IR, low bitrate, DAV exports)
+- Indian languages (once fixed)
+- on-premises CPU deployment at state-police budgets
+- custody-grade exports
+- measured accuracy published per condition
+
+**[VERIFY]** pricing and procurement through state police modernisation budgets and GeM.
+
 ## 1. The honest starting point
 
 **What we have now (this repository):**

@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS customers (
 CREATE TABLE IF NOT EXISTS api_keys (
     id TEXT PRIMARY KEY,
     customer_id TEXT,
-    role TEXT NOT NULL,                             -- customer | admin | safeguards_owner
+    role TEXT NOT NULL,                             -- customer | admin | safeguards_owner | investigator
     principal TEXT NOT NULL,
     key_hash TEXT UNIQUE NOT NULL,
     created_at TEXT NOT NULL,
@@ -232,7 +232,7 @@ class Store:
 
     # ------------------------------------------------------------------ API keys
     def create_api_key(self, role: str, principal: str, customer_id: str | None, actor: str) -> str:
-        if role not in ("customer", "admin", "safeguards_owner"):
+        if role not in ("customer", "admin", "safeguards_owner", "investigator"):
             raise ValueError("invalid role")
         if role == "customer" and not customer_id:
             raise ValueError("customer keys need a customer_id")

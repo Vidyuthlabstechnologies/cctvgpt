@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 
 from ..params import SceneParams
-from .actors import BONES, Person, skeleton
+from .actors import BONES, SHIRT_NAMES, TROUSER_NAMES, Person, skeleton
 from .camera import Camera
 from .events import Cast, build_cast
 from .scenes import build_layout, lighting, raycast, shade_materials, sky_color
@@ -278,6 +278,8 @@ class SimRenderer:
             "bbox": _clip_box(box, W, H),
             "visibility": round(vis_frac, 3),
             "state": state,
+            "upper_color": SHIRT_NAMES.get(tuple(person.shirt)),
+            "lower_color": TROUSER_NAMES.get(tuple(person.trousers)),
             "ground_xy": [round(st.x, 3), round(st.y, 3)],
         }
 

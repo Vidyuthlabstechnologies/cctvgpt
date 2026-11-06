@@ -20,6 +20,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.27"]
+# Forensic search models (CPU builds of torch work; install torch from the PyTorch index for CPU-only machines).
+search = ["torch>=2.2", "torchvision>=0.17", "open_clip_torch>=2.24", "pillow>=10"]
+bench = ["scikit-learn>=1.4"]
 
 [project.scripts]
 cctvgpt = "cctvgpt.cli:main"

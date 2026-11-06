@@ -149,6 +149,32 @@ def cmd_evaluate(_p: Platform, a) -> None:
     _print(card["overall"])
 
 
+def cmd_search(p: Platform, a) -> None:
+    from .search.engine import SearchEngine
+
+    eng = SearchEngine(p.settings.search_dir, p.store, p.watermarker, p.keys, variant=a.model or p.settings.search_model)
+    actor = f"cli:{a.officer}"
+    if a.action == "ingest":
+        _print(eng.ingest(Path(a.target), actor, a.case, a.camera, a.start_time, a.every))
+    elif a.action == "query":
+        img = None
+        if a.image:
+            import cv2
+
+            img = cv2.imread(a.image)
+            if img is None:
+                raise SystemExit(f"cannot read image {a.image}")
+        r = eng.search(actor, a.case, a.purpose, text=a.target or None, image=img, k=a.k, include_synthetic=a.include_synthetic)
+        for h in r["results"]:
+            when = f"{h['t_start']:.1f}-{h['t_end']:.1f}s" if h["kind"] == "video" else "photo"
+            print(f"{h['score']:.3f}  {when:>14}  {h['match']:<18} {h['path']}  [source {h['source_id']}]")
+    elif a.action == "export":
+        src, t0, t1 = a.target.split(",")
+        _print(eng.export_segment(src, float(t0), float(t1), actor, a.case))
+    elif a.action == "sources":
+        _print(eng.sources())
+
+
 def cmd_serve(_p: Platform, a) -> None:
     import uvicorn
 
@@ -210,6 +236,20 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--predictions", required=True, help="JSON file {clip_id: {frames: [...], events: [...]}}")
     s.add_argument("--html", help="also write an HTML scorecard here")
 
+    s = sub.add_parser("search", help="forensic search over photos, videos and CCTV recordings")
+    s.add_argument("action", choices=["ingest", "query", "export", "sources"])
+    s.add_argument("target", nargs="?", default="", help="ingest: file or folder; query: text; export: SOURCE_ID,T0,T1")
+    s.add_argument("--case", default="", help="case reference, e.g. FIR number (required for ingest/query/export)")
+    s.add_argument("--purpose", default="", help="purpose of the search (required for query)")
+    s.add_argument("--officer", default="officer", help="name recorded in the audit log")
+    s.add_argument("--image", help="query by example photo")
+    s.add_argument("--camera")
+    s.add_argument("--start-time")
+    s.add_argument("--every", type=float, default=1.0, help="seconds between sampled frames")
+    s.add_argument("--k", type=int, default=20)
+    s.add_argument("--model", choices=["en", "multilingual"], default=None)
+    s.add_argument("--include-synthetic", action="store_true")
+
     s = sub.add_parser("serve", help="run the API and dashboard")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000)
@@ -220,7 +260,7 @@ def main(argv=None) -> None:
     a = build_parser().parse_args(argv)
     p = Platform.open()
     {"init": cmd_init, "customer": cmd_customer, "release": cmd_release, "generate": cmd_generate,
-     "verify": cmd_verify, "audit": cmd_audit, "evaluate": cmd_evaluate, "serve": cmd_serve}[a.cmd](p, a)
+     "verify": cmd_verify, "audit": cmd_audit, "evaluate": cmd_evaluate, "search": cmd_search, "serve": cmd_serve}[a.cmd](p, a)
 
 
 if __name__ == "__main__":

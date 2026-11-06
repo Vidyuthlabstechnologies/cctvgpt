@@ -1,6 +1,11 @@
-# CCTVGPT: synthetic CCTV-style video generation
+# CCTVGPT: footage search and synthetic CCTV for Indian public safety
 
-Prompt-based generation of realistic, fixed-camera, CCTV-style clips for training and testing video-analytics systems, with safeguards built into the core of the product. This is the Phase 1 build of the VidyuthLabs AI vertical described in *PRD: Synthetic CCTV-Style Video Generation* (draft v0.1, 6 November 2026).
+CCTVGPT has two parts that work together:
+
+1. **Forensic footage search** ([docs/SEARCH.md](docs/SEARCH.md)). Find specific people, vehicles, objects and moments across photo galleries, video files and CCTV/NVR exports, including dark, noisy and IR night footage. Search by plain-language description or by example photo, then export segments from the untouched original with a chain-of-custody record. It runs on-premises on CPU, every search is tied to a case reference and audited, and there is no face recognition.
+2. **Synthetic CCTV generation with safeguards** (below). This is the test bench that measures search and analytics accuracy under night, rain, fog and occlusion with exact ground truth, and the data engine for making search robust.
+
+The generator was built first, from the original PRD (*Synthetic CCTV-Style Video Generation*, draft v0.1): prompt-based generation of realistic, fixed-camera, CCTV-style clips for training and testing video-analytics systems, with safeguards built into the core of the product. This is the Phase 1 build of the VidyuthLabs AI vertical described in *PRD: Synthetic CCTV-Style Video Generation* (draft v0.1, 6 November 2026).
 
 **Every output is synthetic, visibly labelled, invisibly watermarked and signed. Nothing here may be used or presented as evidence or as a record of real events.**
 
@@ -129,12 +134,33 @@ Authentication uses the `X-API-Key` header. There is no anonymous generation.
 | SR-9 | Clean-export exception | Off by default (`CCTVGPT_CLEAN_EXPORT_ENABLED`); also needs an enterprise contract and a `feature/clean_export` approval; watermark, metadata and logging retained. **Likely conflicts with the IT Rules 2026 duty to prevent label removal; recommended for withdrawal in India** ([docs/COMPLIANCE.md](docs/COMPLIANCE.md)) |
 | SR-10 | Release gate | `release_gate.py`: approval requires a passing safeguards self-test; generation refuses unapproved versions |
 
+## Search quickstart
+
+Install the search models (CPU builds of PyTorch work):
+
+```bash
+pip install -e '.[search]'
+```
+
+Index a case folder and search it:
+
+```bash
+cctvgpt search ingest /evidence/FIR-0123 --case FIR-0123/2026 --camera "Gate 2" --officer "SI Sharma"
+```
+
+```bash
+cctvgpt search query "a person lying on the floor" --case FIR-0123/2026 --purpose "locate fall incident" --officer "SI Sharma"
+```
+
+Or run `cctvgpt serve` and open `/search` with an investigator key. Measured accuracy on real and synthetic footage is in [docs/SEARCH.md](docs/SEARCH.md).
+
 ## Evidence on real data
 
 `benchmarks/` tests the product against real footage and published research. See [benchmarks/README.md](benchmarks/README.md) for the protocol, results and limits:
 
 * `fall_sim2real.py`: does synthetic data help detect *real* falls? Uses the UR Fall Detection Dataset (internal evaluation only, CC BY-NC-SA).
 * `stress_test_detector.py`: an off-the-shelf COCO person detector, scored across conditions on a CCTVGPT suite. This demonstrates acceptance testing and probes realism.
+* `search_eval.py`: footage-search accuracy on real URFD frames (day vs simulated night, English vs Hindi) and clothing-colour search on synthetic day/night/IR/rain/fog footage.
 
 Strategy and compliance are covered in [docs/STRATEGY.md](docs/STRATEGY.md) and [docs/COMPLIANCE.md](docs/COMPLIANCE.md). The latter includes the February 2026 IT Rules SGI amendment, the DPDP Rules 2025 and EU AI Act Article 50.
 
@@ -173,6 +199,7 @@ cctvgpt/
   release_gate.py             SR-10 gate and safeguards self-test
   jobs.py                     queue, batches, export
   evaluation.py               acceptance-testing scorecards
+  search/                     forensic search: ingest, enhancement, detection, CLIP index, export
   api/                        FastAPI app and static dashboard / verify pages
   cli.py                      operator CLI
 benchmarks/

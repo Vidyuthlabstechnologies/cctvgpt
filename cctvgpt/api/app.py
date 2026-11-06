@@ -106,7 +106,7 @@ class MisusePatch(BaseModel):
     resolution: str
 
 
-def create_app(platform: Platform | None = None, workers: int | None = None) -> FastAPI:
+def create_app(platform: Platform | None = None, workers: int | None = None, search_engine=None) -> FastAPI:
     platform = platform or Platform.open()
     queue = JobQueue(platform, workers)
 
@@ -154,6 +154,14 @@ def create_app(platform: Platform | None = None, workers: int | None = None) -> 
     @app.get("/", response_class=HTMLResponse)
     def dashboard():
         return (STATIC / "index.html").read_text()
+
+    @app.get("/search", response_class=HTMLResponse)
+    def search_page():
+        return (STATIC / "search.html").read_text()
+
+    from .search_routes import register as register_search
+
+    register_search(app, platform, principal, search_engine)
 
     @app.get("/verify", response_class=HTMLResponse)
     def verify_page():

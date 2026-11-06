@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Footage Search</title>
+<style>
+  :root { --bg:#f5f6f8; --panel:#fff; --ink:#1d2330; --muted:#5d6678; --line:#dde1e8; --accent:#1f5fbf; --warn:#a15c00; --bad:#b3261e; --ok:#1e7b34; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171c; --panel:#1d2128; --ink:#e7eaf0; --muted:#9aa3b2; --line:#2e3440; --accent:#6ea2ff; --warn:#f0b35a; --bad:#ff8a80; --ok:#7bd88f; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:12px 16px; background:var(--panel); border-bottom:1px solid var(--line); display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  header h1 { font-size:17px; margin:0; } header .tag { font-size:12px; color:var(--muted); }
+  main { max-width:1280px; margin:0 auto; padding:16px; display:grid; grid-template-columns:minmax(0,360px) minmax(0,1fr); gap:16px; }
+  @media (max-width: 900px) { main { grid-template-columns:1fr; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:16px; }
+  h2 { font-size:15px; margin:0 0 8px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input, textarea, select, button { font:inherit; color:inherit; }
+  input[type=text], input[type=password], textarea { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); }
+  input[type=file] { max-width:100%; }
+  button { padding:7px 12px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; margin-top:10px; }
+  button.secondary { background:transparent; color:var(--accent); }
+  .muted { color:var(--muted); font-size:12px; } .bad { color:var(--bad); } .warn { color:var(--warn); } .ok { color:var(--ok); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:10px; }
+  .card { border:1px solid var(--line); border-radius:6px; overflow:hidden; cursor:pointer; background:var(--bg); }
+  .card img { width:100%; height:120px; object-fit:cover; display:block; background:#000; }
+  .card div { padding:6px 8px; font-size:12px; overflow-wrap:anywhere; }
+  .card.sel { outline:2px solid var(--accent); }
+  video { width:100%; max-height:420px; background:#000; border-radius:6px; }
+  pre { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px; overflow:auto; max-height:220px; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Footage search</h1>
+  <span class="tag">Every search is logged with its case reference and purpose. A result is a lead to review, not an identification.</span>
+</header>
+<main>
+  <div>
+    <section>
+      <h2>Session</h2>
+      <label for="key">Investigator API key</label><input id="key" type="password">
+      <label for="caseRef">Case reference (e.g. FIR number)</label><input id="caseRef" type="text" placeholder="FIR-0123/2026">
+      <label for="purpose">Purpose of search</label><input id="purpose" type="text" placeholder="Trace suspect vehicle near market, 9-11 pm">
+    </section>
+    <section>
+      <h2>Search</h2>
+      <label for="q">Describe what to find (English, or Hindi with the multilingual model)</label>
+      <textarea id="q" rows="3" placeholder="man in a red shirt on a motorcycle at night"></textarea>
+      <label for="img">Or find similar to a photo (optional)</label><input id="img" type="file" accept="image/*">
+      <label for="cls">Look in</label>
+      <select id="cls"><option value="">everything</option><option value="person">people</option><option value="motorcycle,bicycle">two-wheelers</option><option value="car,bus,truck">vehicles</option><option value="backpack,handbag,suitcase">bags</option></select>
+      <button id="go">Search</button>
+      <div id="msg" class="muted" style="margin-top:6px"></div>
+    </section>
+    <section>
+      <h2>Add footage</h2>
+      <input id="files" type="file" multiple accept="video/*,image/*,.dav,.h264,.264">
+      <label for="cam">Camera / location label (optional)</label><input id="cam" type="text">
+      <button class="secondary" id="up">Upload and index</button>
+      <div id="upmsg" class="muted"></div>
+      <div id="sources" class="muted" style="margin-top:8px"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Results</h2>
+      <div id="results" class="grid"></div>
+    </section>
+    <section>
+      <h2>Review</h2>
+      <video id="player" controls muted playsinline></video>
+      <div id="detail" class="muted" style="margin-top:6px">Select a result.</div>
+      <button class="secondary" id="exportBtn" hidden>Export this segment with chain of custody</button>
+      <pre id="custody" hidden></pre>
+    </section>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+try { $("key").value = localStorage.getItem("cctvgpt_inv_key") || ""; $("caseRef").value = localStorage.getItem("cctvgpt_case") || ""; } catch (e) {}
+let current = null; const blobs = {};
+function key() { const k = $("key").value.trim(); try { localStorage.setItem("cctvgpt_inv_key", k); localStorage.setItem("cctvgpt_case", $("caseRef").value.trim()); } catch (e) {} return k; }
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({"X-API-Key": key()}, opts.headers || {});
+  const r = await fetch(path, opts);
+  const ct = r.headers.get("content-type") || "";
+  const body = ct.includes("json") ? await r.json() : await r.blob();
+  if (!r.ok) throw Object.assign(new Error((body && body.detail) || r.status), {body});
+  return body;
+}
+function fmt(t) { const m = Math.floor(t / 60), s = (t % 60).toFixed(1); return `${m}:${s.padStart(4, "0")}`; }
+async function loadSources() {
+  if (!$("key").value.trim()) return;
+  try {
+    const s = await api("/v1/search/sources");
+    $("sources").innerHTML = `${s.length} files indexed` + (s.some(x => x.synthetic) ? ` · <span class="warn">${s.filter(x => x.synthetic).length} flagged synthetic (excluded)</span>` : "");
+  } catch (e) { $("sources").textContent = ""; }
+}
+$("go").onclick = async () => {
+  const caseRef = $("caseRef").value.trim(), purpose = $("purpose").value.trim(), text = $("q").value.trim(), file = $("img").files[0];
+  if (!caseRef || !purpose) { $("msg").innerHTML = '<span class="bad">Case reference and purpose are required.</span>'; return; }
+  $("msg").textContent = "Searching..."; $("results").innerHTML = "";
+  try {
+    let r;
+    if (file) {
+      const fd = new FormData(); fd.append("case_ref", caseRef); fd.append("purpose", purpose); if (text) fd.append("text", text); fd.append("image", file);
+      r = await api("/v1/search/query-image", {method: "POST", body: fd});
+    } else {
+      const cls = $("cls").value ? $("cls").value.split(",") : null;
+      r = await api("/v1/search/query", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({text, case_ref: caseRef, purpose, classes: cls})});
+    }
+    $("msg").innerHTML = `${r.results.length} results from ${r.searched_items} indexed frames/objects. ${esc(r.note)}` + (r.warnings || []).map(w => `<br><span class="warn">${esc(w)}</span>`).join("");
+    for (const h of r.results) {
+      const div = document.createElement("div"); div.className = "card";
+      div.innerHTML = `<img alt=""><div><b>${esc(h.path.split("/").pop())}</b><br>${h.kind === "video" ? fmt(h.t_start) + (h.t_end > h.t_start ? "–" + fmt(h.t_end) : "") : "photo"} · ${esc(h.match)}<br>score ${h.score.toFixed(3)}${h.camera ? " · " + esc(h.camera) : ""}</div>`;
+      api(`/v1/search/thumb/${h.item_id}`).then(b => { div.querySelector("img").src = URL.createObjectURL(b); }).catch(() => {});
+      div.onclick = () => select(h, div);
+      $("results").appendChild(div);
+    }
+  } catch (e) { $("msg").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+};
+async function select(h, div) {
+  document.querySelectorAll(".card").forEach(c => c.classList.remove("sel")); div.classList.add("sel");
+  current = h; $("custody").hidden = true;
+  $("detail").textContent = `${h.path.split("/").pop()} · ${h.kind === "video" ? "best match at " + fmt(h.t_best) + " (segment " + fmt(h.t_start) + "–" + fmt(h.t_end) + ")" : "photo"}`;
+  $("exportBtn").hidden = h.kind !== "video" && h.kind !== "image";
+  if (h.kind === "video") {
+    if (!blobs[h.source_id]) blobs[h.source_id] = URL.createObjectURL(await api(`/v1/search/media/${h.source_id}?case_ref=${encodeURIComponent($("caseRef").value.trim())}`));
+    const v = $("player"); v.src = blobs[h.source_id]; v.onloadedmetadata = () => { v.currentTime = Math.max(0, h.t_best - 1); };
+  } else { $("player").removeAttribute("src"); }
+}
+$("exportBtn").onclick = async () => {
+  if (!current) return;
+  try {
+    const r = await api("/v1/search/export", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({source_id: current.source_id, t0: current.t_start, t1: current.t_end, case_ref: $("caseRef").value.trim()})});
+    $("custody").hidden = false; $("custody").textContent = JSON.stringify(r, null, 1);
+    const b = await api(`/v1/search/exports/${r.export_id}/download`); const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = r.export.file; a.click();
+  } catch (e) { $("custody").hidden = false; $("custody").textContent = "Export failed: " + e.message; }
+};
+$("up").onclick = async () => {
+  const fs = $("files").files, caseRef = $("caseRef").value.trim();
+  if (!fs.length || !caseRef) { $("upmsg").innerHTML = '<span class="bad">Choose files and enter a case reference.</span>'; return; }
+  const fd = new FormData(); fd.append("case_ref", caseRef); if ($("cam").value) fd.append("camera", $("cam").value); for (const f of fs) fd.append("files", f);
+  $("upmsg").textContent = "Uploading and indexing (this can take a while for long recordings)...";
+  try { const r = await api("/v1/search/upload", {method: "POST", body: fd}); $("upmsg").textContent = `Indexed ${r.indexed} files (${r.frames} frames, ${r.objects} objects); ${r.skipped_duplicates} duplicates skipped; ${r.synthetic_flagged} flagged synthetic.`; loadSources(); }
+  catch (e) { $("upmsg").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+};
+loadSources();
+</script>
+</body>
+</html>
