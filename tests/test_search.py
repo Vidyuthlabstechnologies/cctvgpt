@@ -38,7 +38,44 @@ class StubEmbedder:
 
 class StubDetector:
     def detect(self, frames):
-        return [[("person", 0.9, (2, 2, 40, 60))] if f.shape[0] > 70 else [] for f in frames]
+        return [[("person", 0.9, (2, 2, 40, 60)), ("car", 0.9, (60, 10, 90, 70))] if f.shape[0] > 70 else [] for f in frames]
+
+
+class StubTranslator:
+    name = "stub"
+
+    def translate(self, text, src_lang):
+        return {"लाल": "red", "नीली": "blue"}.get(text.split()[0], "something")
+
+
+class _Read:
+    def __init__(self, text):
+        self.text, self.raw, self.valid_format, self.bbox = text, text, True, (2, 2, 30, 10)
+
+
+def stub_plates(img):
+    """Pretend every vehicle crop in a red video carries plate MH01DE2780, blue ones KA05MN1234."""
+    b, g, r = img.reshape(-1, 3).mean(0)
+    return [_Read("MH01DE2780" if r > b else "KA05MN1234")]
+
+
+class StubFaces:
+    MATCH_THRESHOLD = 0.363
+    MIN_RELIABLE_FACE_PX = 40
+
+    @staticmethod
+    def detect_faces(img):
+        return [np.array([10, 10, 50, 50] + [0] * 10 + [0.95], np.float32)] if img.shape[0] > 70 else []
+
+    @staticmethod
+    def embed_face(img, row):
+        v = img.reshape(-1, 3).mean(0).astype(np.float32) + 1e-3
+        return v / np.linalg.norm(v)
+
+    @classmethod
+    def largest_face(cls, img):
+        f = cls.detect_faces(cv2.resize(img, (100, 100)))
+        return f[0] if f else None
 
 
 def _video(path, bgr, n=24, fps=8, size=(160, 120)):
@@ -52,7 +89,8 @@ def _video(path, bgr, n=24, fps=8, size=(160, 120)):
 
 @pytest.fixture
 def engine(platform, tmp_path):
-    return SearchEngine(tmp_path / "search", platform.store, platform.watermarker, platform.keys, embedder=StubEmbedder(), detector=StubDetector())
+    return SearchEngine(tmp_path / "search", platform.store, platform.watermarker, platform.keys, embedder=StubEmbedder(), detector=StubDetector(),
+                        plate_reader=stub_plates, face_backend=StubFaces(), translator=StubTranslator(), enable_faces=True)
 
 
 @pytest.fixture
@@ -100,7 +138,68 @@ def test_ir_and_language_warnings(engine, platform):
     engine.ingest(d, "officer", "FIR-7")
     r = engine.search("officer", "FIR-7", "test", text="man in red shirt")
     assert any("infrared" in w for w in r["warnings"])
-    assert any("Indian-language" in w for w in engine.search("officer", "FIR-7", "test", text="लाल शर्ट वाला आदमी")["warnings"])
+    r = engine.search("officer", "FIR-7", "test", text="लाल शर्ट वाला आदमी")
+    assert r["query"]["searched_text"] == "red" and r["query"]["translation"]["source_lang"] == "hin_Deva"
+    assert any("translation" in w for w in r["warnings"])
+
+
+def test_hindi_query_is_translated_before_search(engine, footage):
+    engine.ingest(footage, "officer", "FIR-8")
+    r = engine.search("officer", "FIR-8", "test", text="लाल गाड़ी")
+    assert r["results"][0]["path"].endswith("cam_red.mp4")
+
+
+def test_untranslatable_query_warns(platform, tmp_path):
+    class Broken:
+        name = "broken"
+
+        def translate(self, text, lang):
+            raise RuntimeError("model missing")
+
+    eng = SearchEngine(tmp_path / "s2", platform.store, embedder=StubEmbedder(), detector=StubDetector(), translator=Broken(), plate_reader=stub_plates)
+    r = eng.search("o", "FIR-9", "test", text="லால் கார்")
+    assert r["query"]["translation"]["source_lang"] == "tam_Taml"
+    assert any("could not be translated" in w for w in r["warnings"])
+
+
+def test_plate_search_exact_partial_and_fuzzy(engine, footage, platform):
+    engine.ingest(footage, "officer", "FIR-10")
+    exact = engine.search_plate("officer", "FIR-10", "trace vehicle", "MH01DE2780")
+    assert exact["results"][0]["path"].endswith("cam_red.mp4") and exact["results"][0]["score"] == 1.0
+    partial = engine.search_plate("officer", "FIR-10", "witness saw last digits", "2780")
+    assert partial["results"] and partial["results"][0]["plate_read"] == "MH01DE2780"
+    fuzzy = engine.search_plate("officer", "FIR-10", "ocr tolerant", "MH01DE278O")
+    assert fuzzy["results"][0]["plate_read"] == "MH01DE2780"
+    assert not engine.search_plate("officer", "FIR-10", "none", "DL3CAB9999")["results"]
+    assert "search_plate" in [r["action"] for r in platform.store.q("SELECT action FROM audit")]
+
+
+def test_face_search_is_gated_scoped_and_audited(engine, footage, platform, tmp_path):
+    engine.ingest(footage, "officer", "FIR-11")
+    probe = np.full((120, 120, 3), COLOURS["blue"], np.uint8)
+    with pytest.raises(ValueError, match="justification"):
+        engine.search_face("officer", "FIR-11", "find suspect", "short", probe)
+    r = engine.search_face("officer", "FIR-11", "find suspect", "CCTV of the chain-snatching suspect from the victim's phone", probe)
+    assert r["results"][0]["path"].endswith("cam_blue.mp4") and r["results"][0]["above_threshold"]
+    # Another case's footage is not searched.
+    assert engine.search_face("officer", "OTHER-CASE", "find suspect", "Different case, must not see FIR-11 footage", probe)["results"] == []
+    rows = [json.loads(x["details_json"]) for x in platform.store.q("SELECT action, details_json FROM audit") if x["action"] == "search_face"]
+    d = [r for r in rows if r["case_ref"] == "FIR-11"][-1]
+    assert d["justification"].startswith("CCTV of") and len(d["probe_sha256"]) == 64
+    off = SearchEngine(tmp_path / "s3", platform.store, embedder=StubEmbedder(), detector=StubDetector(), plate_reader=stub_plates)
+    with pytest.raises(PermissionError):
+        off.search_face("officer", "FIR-11", "x", "a long enough justification text", probe)
+
+
+def test_scene_tags_vehicle_colour_and_places(engine, footage):
+    engine.ingest(footage, "officer", "FIR-12")
+    srcs = engine.sources()
+    assert all(len(s["scene_tags"]) == 3 for s in srcs)
+    assert any(s["plates_read"] > 0 for s in srcs) and any(s["faces_indexed"] > 0 for s in srcs)
+    places = engine.places()
+    assert sum(len(p["sources"]) for p in places) == 3
+    tag = srcs[0]["scene_tags"][0]["tag"]
+    assert engine.search("officer", "FIR-12", "t", text="red", scene=tag)["results"]
 
 
 def test_searches_are_audited(engine, footage, platform):
@@ -171,3 +270,23 @@ def test_search_api_roles_paths_and_flow(platform, engine, footage, tmp_path):
         up = c.post("/v1/search/upload", data={"case_ref": "FIR-6"}, files=[("files", ("green2.png", cv2.imencode(".png", np.full((80, 80, 3), (0, 200, 0), np.uint8))[1].tobytes(), "image/png"))], headers=H)
         assert up.status_code == 200 and up.json()["indexed"] == 1
         assert len(c.get("/v1/search/sources", headers=H).json()) == 4
+
+
+def test_plate_face_places_api(platform, engine, footage):
+    inv = platform.store.create_api_key("investigator", "si.rao", None, "admin")
+    with TestClient(create_app(platform, workers=1, search_engine=engine)) as c:
+        H = {"X-API-Key": inv}
+        c.post("/v1/search/ingest", json={"path": str(footage), "case_ref": "FIR-20"}, headers=H)
+        cap = c.get("/v1/search/capabilities", headers=H).json()
+        assert cap["face_search"] is True and cap["gender_classification"] is False
+        pr = c.post("/v1/search/plate", json={"plate": "MH01DE2780", "case_ref": "FIR-20", "purpose": "trace car"}, headers=H).json()
+        assert pr["results"][0]["plate_read"] == "MH01DE2780"
+        assert c.get(f"/v1/search/plate-thumb/{pr['results'][0]['plate_id']}", headers=H).status_code == 200
+        _, buf = cv2.imencode(".png", np.full((120, 120, 3), COLOURS["red"], np.uint8))
+        form = {"case_ref": "FIR-20", "purpose": "find suspect", "justification": "Suspect photo provided by complainant in FIR-20"}
+        fr = c.post("/v1/search/face", data=form, files={"image": ("p.png", buf.tobytes(), "image/png")}, headers=H).json()
+        assert fr["results"][0]["path"].endswith("cam_red.mp4")
+        assert c.get(f"/v1/search/face-thumb/{fr['results'][0]['face_id']}", headers=H).status_code == 200
+        allc = c.post("/v1/search/face", data={**form, "all_cases": "true"}, files={"image": ("p.png", buf.tobytes(), "image/png")}, headers=H)
+        assert allc.status_code == 403  # only admins may search across cases
+        assert c.get("/v1/search/places", headers=H).status_code == 200

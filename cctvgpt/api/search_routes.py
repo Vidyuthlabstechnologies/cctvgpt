@@ -39,6 +39,16 @@ class QueryBody(BaseModel):
     classes: list[str] | None = None
     source_ids: list[str] | None = None
     include_synthetic: bool = False
+    scene: str | None = Field(None, max_length=60)
+    vehicle_colour: str | None = Field(None, max_length=20)
+
+
+class PlateBody(BaseModel):
+    plate: str = Field(min_length=2, max_length=16)
+    case_ref: str
+    purpose: str = Field(min_length=3, max_length=300)
+    k: int = Field(30, ge=1, le=200)
+    min_score: float = Field(0.6, ge=0.0, le=1.0)
 
 
 class ExportBody(BaseModel):
@@ -62,7 +72,8 @@ def register(app, platform, principal_dep, engine: SearchEngine | None = None) -
     def eng() -> SearchEngine:
         with lock:
             if holder["engine"] is None:
-                holder["engine"] = SearchEngine(settings.search_dir, st, platform.watermarker, platform.keys, variant=settings.search_model)
+                holder["engine"] = SearchEngine(settings.search_dir, st, platform.watermarker, platform.keys, variant=settings.search_model,
+                                                enable_faces=settings.face_search_enabled)
             return holder["engine"]
 
     def investigator(p=Depends(principal_dep)):
@@ -121,7 +132,7 @@ def register(app, platform, principal_dep, engine: SearchEngine | None = None) -
         _check_case(body.case_ref)
         try:
             return eng().search(p.principal, body.case_ref, body.purpose, text=body.text, k=body.k, classes=body.classes,
-                                source_ids=body.source_ids, include_synthetic=body.include_synthetic)
+                                source_ids=body.source_ids, include_synthetic=body.include_synthetic, scene=body.scene, vehicle_colour=body.vehicle_colour)
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
 
@@ -137,6 +148,53 @@ def register(app, platform, principal_dep, engine: SearchEngine | None = None) -
             return eng().search(p.principal, case_ref, purpose, text=text or None, image=img, k=max(1, min(k, 200)))
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
+
+    @app.post("/v1/search/plate")
+    def plate(body: PlateBody, p=Depends(investigator)):
+        _check_case(body.case_ref)
+        return eng().search_plate(p.principal, body.case_ref, body.purpose, body.plate, body.k, body.min_score)
+
+    @app.post("/v1/search/face")
+    async def face(case_ref: str = Form(...), purpose: str = Form(...), justification: str = Form(...), all_cases: bool = Form(False),
+                   image: UploadFile = File(...), p=Depends(investigator)):
+        _check_case(case_ref)
+        if all_cases and p.role != "admin":
+            raise HTTPException(403, "only an admin can search faces across cases")
+        data = await image.read(20 * 1024 * 1024)
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        if img is None:
+            raise HTTPException(422, "could not read the probe image")
+        try:
+            return eng().search_face(p.principal, case_ref, purpose, justification, img, all_cases=all_cases)
+        except PermissionError as e:
+            raise HTTPException(403, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+
+    @app.get("/v1/search/capabilities")
+    def capabilities(p=Depends(investigator)):
+        from ..search.engine import SCENES, VEHICLE_COLOURS
+
+        return {"face_search": eng().enable_faces, "plates": eng().enable_plates, "scenes": [s_.split(" ", 1)[1] for s_ in SCENES],
+                "vehicle_colours": VEHICLE_COLOURS, "translation": "IndicTrans2 if available, else opus-mt (Hindi)", "gender_classification": False}
+
+    @app.get("/v1/search/places")
+    def places(p=Depends(investigator)):
+        return eng().places()
+
+    @app.get("/v1/search/plate-thumb/{plate_id}")
+    def plate_thumb(plate_id: int, p=Depends(investigator)):
+        path = eng().plate_thumb(plate_id)
+        if path is None or not path.exists():
+            raise HTTPException(404, "no thumbnail")
+        return FileResponse(path, media_type="image/jpeg")
+
+    @app.get("/v1/search/face-thumb/{face_id}")
+    def face_thumb(face_id: int, p=Depends(investigator)):
+        path = eng().face_thumb(face_id)
+        if path is None or not path.exists():
+            raise HTTPException(404, "no thumbnail")
+        return FileResponse(path, media_type="image/jpeg")
 
     @app.get("/v1/search/thumb/{item_id}")
     def thumb(item_id: int, p=Depends(investigator)):

@@ -152,7 +152,8 @@ def cmd_evaluate(_p: Platform, a) -> None:
 def cmd_search(p: Platform, a) -> None:
     from .search.engine import SearchEngine
 
-    eng = SearchEngine(p.settings.search_dir, p.store, p.watermarker, p.keys, variant=a.model or p.settings.search_model)
+    eng = SearchEngine(p.settings.search_dir, p.store, p.watermarker, p.keys, variant=a.model or p.settings.search_model,
+                       enable_faces=p.settings.face_search_enabled)
     actor = f"cli:{a.officer}"
     if a.action == "ingest":
         _print(eng.ingest(Path(a.target), actor, a.case, a.camera, a.start_time, a.every))
@@ -168,6 +169,22 @@ def cmd_search(p: Platform, a) -> None:
         for h in r["results"]:
             when = f"{h['t_start']:.1f}-{h['t_end']:.1f}s" if h["kind"] == "video" else "photo"
             print(f"{h['score']:.3f}  {when:>14}  {h['match']:<18} {h['path']}  [source {h['source_id']}]")
+    elif a.action == "plate":
+        for h in eng.search_plate(actor, a.case, a.purpose, a.target, a.k)["results"]:
+            print(f"{h['score']:.2f}  {h['plate_read']:<12} {h['t_start']:.1f}s  {h['vehicle'] or '':<10} {h['path']}")
+    elif a.action == "face":
+        import cv2
+
+        img = cv2.imread(a.image or "")
+        if img is None:
+            raise SystemExit("--image is required for face search")
+        r = eng.search_face(actor, a.case, a.purpose, a.justification, img, a.k)
+        for h in r["results"]:
+            flag = "ABOVE THRESHOLD" if h["above_threshold"] else "weak"
+            print(f"{h['similarity']:.3f}  {flag:<15} {h['t']:.1f}s  {h['reliability']:<22} {h['path']}")
+        print(r["note"])
+    elif a.action == "places":
+        _print(eng.places())
     elif a.action == "export":
         src, t0, t1 = a.target.split(",")
         _print(eng.export_segment(src, float(t0), float(t1), actor, a.case))
@@ -237,12 +254,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--html", help="also write an HTML scorecard here")
 
     s = sub.add_parser("search", help="forensic search over photos, videos and CCTV recordings")
-    s.add_argument("action", choices=["ingest", "query", "export", "sources"])
+    s.add_argument("action", choices=["ingest", "query", "plate", "face", "places", "export", "sources"])
     s.add_argument("target", nargs="?", default="", help="ingest: file or folder; query: text; export: SOURCE_ID,T0,T1")
     s.add_argument("--case", default="", help="case reference, e.g. FIR number (required for ingest/query/export)")
     s.add_argument("--purpose", default="", help="purpose of the search (required for query)")
     s.add_argument("--officer", default="officer", help="name recorded in the audit log")
-    s.add_argument("--image", help="query by example photo")
+    s.add_argument("--image", help="query by example photo, or the probe photo for face search")
+    s.add_argument("--justification", default="", help="required for face search; recorded in the audit log")
     s.add_argument("--camera")
     s.add_argument("--start-time")
     s.add_argument("--every", type=float, default=1.0, help="seconds between sampled frames")

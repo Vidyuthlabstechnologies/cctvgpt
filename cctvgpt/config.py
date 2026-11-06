@@ -65,6 +65,9 @@ class Settings:
     # Forensic search: folders the server may ingest from (colon-separated). Ingest
     # requests for any other path are refused, so the API cannot read arbitrary files.
     search_roots: list = field(default_factory=lambda: [Path(p).resolve() for p in os.environ.get("CCTVGPT_SEARCH_ROOTS", "").split(":") if p])
+    # Face matching is biometric processing: off unless the deployment opts in after legal
+    # review (docs/SEARCH.md). When off, faces are not indexed at all.
+    face_search_enabled: bool = field(default_factory=lambda: _env_bool("CCTVGPT_FACE_SEARCH_ENABLED", False))
     # "en" (default) or "multilingual" (Hindi and other Indian-language queries).
     search_model: str = field(default_factory=lambda: os.environ.get("CCTVGPT_SEARCH_MODEL", "en"))
 

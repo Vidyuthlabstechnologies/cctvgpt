@@ -46,13 +46,31 @@
     </section>
     <section>
       <h2>Search</h2>
-      <label for="q">Describe what to find (English, or Hindi with the multilingual model)</label>
+      <label for="q">Describe what to find (English, or Hindi and other Indian languages: translated automatically)</label>
       <textarea id="q" rows="3" placeholder="man in a red shirt on a motorcycle at night"></textarea>
       <label for="img">Or find similar to a photo (optional)</label><input id="img" type="file" accept="image/*">
       <label for="cls">Look in</label>
       <select id="cls"><option value="">everything</option><option value="person">people</option><option value="motorcycle,bicycle">two-wheelers</option><option value="car,bus,truck">vehicles</option><option value="backpack,handbag,suitcase">bags</option></select>
+      <div class="row2" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><label for="scene">Place type</label><select id="scene"><option value="">any</option></select></div>
+        <div><label for="vcol">Vehicle colour</label><select id="vcol"><option value="">any</option></select></div>
+      </div>
       <button id="go">Search</button>
       <div id="msg" class="muted" style="margin-top:6px"></div>
+    </section>
+    <section>
+      <h2>Number plate</h2>
+      <label for="plate">Full or partial plate (OCR errors tolerated)</label>
+      <input id="plate" type="text" placeholder="MH01DE2780 or 2780">
+      <button class="secondary" id="plateGo">Find plate</button>
+      <div id="plateMsg" class="muted"></div>
+    </section>
+    <section id="faceSec" hidden>
+      <h2>Face match (this case only)</h2>
+      <label for="faceImg">Probe photo of the person of interest</label><input id="faceImg" type="file" accept="image/*">
+      <label for="just">Justification (recorded in the audit log)</label><textarea id="just" rows="2" placeholder="Why this face search is necessary for the case"></textarea>
+      <button class="secondary" id="faceGo">Match face</button>
+      <div id="faceMsg" class="muted">Possible matches for human verification only. Not an identification.</div>
     </section>
     <section>
       <h2>Add footage</h2>
@@ -61,6 +79,8 @@
       <button class="secondary" id="up">Upload and index</button>
       <div id="upmsg" class="muted"></div>
       <div id="sources" class="muted" style="margin-top:8px"></div>
+      <button class="secondary" id="placesBtn">Show places</button>
+      <div id="places" class="muted"></div>
     </section>
   </div>
   <div>
@@ -110,7 +130,7 @@ $("go").onclick = async () => {
       r = await api("/v1/search/query-image", {method: "POST", body: fd});
     } else {
       const cls = $("cls").value ? $("cls").value.split(",") : null;
-      r = await api("/v1/search/query", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({text, case_ref: caseRef, purpose, classes: cls})});
+      r = await api("/v1/search/query", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({text, case_ref: caseRef, purpose, classes: cls, scene: $("scene").value || null, vehicle_colour: $("vcol").value || null})});
     }
     $("msg").innerHTML = `${r.results.length} results from ${r.searched_items} indexed frames/objects. ${esc(r.note)}` + (r.warnings || []).map(w => `<br><span class="warn">${esc(w)}</span>`).join("");
     for (const h of r.results) {
@@ -148,6 +168,55 @@ $("up").onclick = async () => {
   try { const r = await api("/v1/search/upload", {method: "POST", body: fd}); $("upmsg").textContent = `Indexed ${r.indexed} files (${r.frames} frames, ${r.objects} objects); ${r.skipped_duplicates} duplicates skipped; ${r.synthetic_flagged} flagged synthetic.`; loadSources(); }
   catch (e) { $("upmsg").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
 };
+function needCase(el) {
+  if (!$("caseRef").value.trim() || !$("purpose").value.trim()) { el.innerHTML = '<span class="bad">Case reference and purpose are required.</span>'; return true; }
+  return false;
+}
+function showCards(items, thumbUrl, label) {
+  $("results").innerHTML = "";
+  for (const h of items) {
+    const div = document.createElement("div"); div.className = "card";
+    div.innerHTML = `<img alt=""><div><b>${esc(h.path.split("/").pop())}</b><br>${label(h)}</div>`;
+    api(thumbUrl(h)).then(b => { div.querySelector("img").src = URL.createObjectURL(b); }).catch(() => {});
+    div.onclick = () => select({source_id: h.source_id, path: h.path, kind: h.kind, t_start: h.t_start ?? h.t, t_end: h.t_end ?? h.t, t_best: h.t_start ?? h.t}, div);
+    $("results").appendChild(div);
+  }
+}
+$("plateGo").onclick = async () => {
+  if (needCase($("plateMsg"))) return;
+  try {
+    const r = await api("/v1/search/plate", {method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify({plate: $("plate").value, case_ref: $("caseRef").value.trim(), purpose: $("purpose").value.trim()})});
+    $("plateMsg").textContent = `${r.results.length} plate reads match (of ${r.plates_indexed} read). ${r.note}`;
+    showCards(r.results, h => `/v1/search/plate-thumb/${h.plate_id}`, h => `<b>${esc(h.plate_read)}</b> · ${esc(h.vehicle || "")}<br>${h.kind === "video" ? fmt(h.t_start) : "photo"} · match ${h.score}`);
+  } catch (e) { $("plateMsg").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+};
+$("faceGo").onclick = async () => {
+  if (needCase($("faceMsg"))) return;
+  const f = $("faceImg").files[0]; if (!f) { $("faceMsg").textContent = "Choose a probe photo."; return; }
+  const fd = new FormData(); fd.append("case_ref", $("caseRef").value.trim()); fd.append("purpose", $("purpose").value.trim()); fd.append("justification", $("just").value.trim()); fd.append("image", f);
+  try {
+    const r = await api("/v1/search/face", {method: "POST", body: fd});
+    $("faceMsg").textContent = `${r.results.length} faces ranked of ${r.faces_compared} in this case. ${r.note}`;
+    showCards(r.results, h => `/v1/search/face-thumb/${h.face_id}`, h => `similarity ${h.similarity}${h.above_threshold ? " · above threshold" : " · weak"}<br>${h.kind === "video" ? fmt(h.t) : "photo"} · ${esc(h.reliability)}`);
+  } catch (e) { $("faceMsg").innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+};
+$("placesBtn").onclick = async () => {
+  try {
+    const g = await api("/v1/search/places");
+    $("places").innerHTML = g.map(p => `<div style="margin-top:6px"><b>${esc(p.scene_tags.join(", ") || "place")}</b>: ${p.sources.length} file(s)<br>${p.sources.map(s => esc(s.path.split("/").pop())).join(", ")}</div>`).join("");
+  } catch (e) { $("places").textContent = e.message; }
+};
+async function loadCaps() {
+  if (!$("key").value.trim()) return;
+  try {
+    const c = await api("/v1/search/capabilities");
+    $("faceSec").hidden = !c.face_search;
+    $("scene").innerHTML = '<option value="">any</option>' + c.scenes.map(x => `<option>${esc(x)}</option>`).join("");
+    $("vcol").innerHTML = '<option value="">any</option>' + c.vehicle_colours.map(x => `<option>${esc(x)}</option>`).join("");
+  } catch (e) {}
+}
+$("key").addEventListener("change", () => { loadCaps(); loadSources(); });
+loadCaps();
 loadSources();
 </script>
 </body>

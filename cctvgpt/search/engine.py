@@ -46,6 +46,15 @@ from .enhance import assess, enhance, needs_enhancement
 
 COLOUR_WORDS = {"red", "blue", "black", "white", "green", "yellow", "orange", "purple", "pink", "brown", "grey", "gray", "maroon", "saffron", "navy"}
 
+VEHICLES = {"car", "motorcycle", "bus", "truck", "bicycle"}
+VEHICLE_COLOURS = ["white", "black", "silver", "grey", "red", "blue", "yellow", "green", "brown"]
+# Scene vocabulary for "place" tags. Religious sites are deliberately not tagged, to avoid
+# footage being sorted by community.
+SCENES = ["a road or street", "a highway", "a traffic junction", "a busy market or bazaar", "a railway station platform",
+          "a bus stand", "a parking lot", "a petrol pump", "a shop interior", "an office or corridor", "a residential lane",
+          "a home interior", "an ATM or bank", "a school or college campus", "a hospital", "a warehouse or factory",
+          "an open ground or park", "a bridge or flyover"]
+
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 VIDEO_EXT = {".mp4", ".avi", ".mkv", ".mov", ".m4v", ".ts", ".mts", ".3gp", ".flv", ".wmv", ".mpg", ".mpeg", ".dav", ".h264", ".264", ".asf"}
 
@@ -63,6 +72,16 @@ CREATE TABLE IF NOT EXISTS items (
     variant TEXT NOT NULL, thumb TEXT, vec BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS items_source ON items(source_id);
+CREATE TABLE IF NOT EXISTS plates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, source_id TEXT NOT NULL, t REAL NOT NULL, text TEXT NOT NULL, raw TEXT,
+    valid INTEGER NOT NULL, vehicle TEXT, x INTEGER, y INTEGER, w INTEGER, h INTEGER, thumb TEXT
+);
+CREATE INDEX IF NOT EXISTS plates_source ON plates(source_id);
+CREATE TABLE IF NOT EXISTS faces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, source_id TEXT NOT NULL, t REAL NOT NULL, x INTEGER, y INTEGER, w INTEGER, h INTEGER,
+    score REAL, size_px INTEGER, thumb TEXT, vec BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS faces_source ON faces(source_id);
 CREATE TABLE IF NOT EXISTS exports (
     id TEXT PRIMARY KEY, source_id TEXT NOT NULL, t0 REAL, t1 REAL, path TEXT, sha256 TEXT,
     case_ref TEXT, actor TEXT, created_at TEXT, custody_json TEXT
@@ -135,14 +154,27 @@ class SearchHit:
 
 class SearchEngine:
     def __init__(self, base_dir: Path, store=None, watermarker=None, keys=None, variant: str = "en", detect_objects: bool = True,
-                 embedder=None, detector=None, index_enhanced: bool = False):
+                 embedder=None, detector=None, index_enhanced: bool = False, enable_plates: bool = True,
+                 enable_faces: bool = False, enable_tags: bool = True, plate_reader=None, face_backend=None, translator=None):
         self.dir = Path(base_dir)
         (self.dir / "thumbs").mkdir(parents=True, exist_ok=True)
         (self.dir / "exports").mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(str(self.dir / "search.sqlite3"), check_same_thread=False, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        for table, col in (("items", "tags"), ("sources", "scene_tags")):
+            cols = {r[1] for r in self.db.execute(f"PRAGMA table_info({table})")}
+            if col not in cols:
+                self.db.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
         self.lock = threading.RLock()
+        self.enable_plates = enable_plates
+        # Face indexing is biometric processing: off unless the deployment enables it.
+        self.enable_faces = enable_faces
+        self.enable_tags = enable_tags
+        self._plate_reader = plate_reader
+        self._face_backend = face_backend
+        self._translator = translator
+        self._text_cache: dict = {}
         self.store = store  # platform store, for the shared audit log
         self.watermarker = watermarker
         self.keys = keys
@@ -175,12 +207,37 @@ class SearchEngine:
 
         return get_detector()
 
+    def _text_vecs(self, texts: list) -> np.ndarray:
+        key = tuple(texts)
+        if key not in self._text_cache:
+            self._text_cache[key] = np.stack([self._embedder().encode_text(t) for t in texts])
+        return self._text_cache[key]
+
+    def _plates_fn(self):
+        if self._plate_reader is not None:
+            return self._plate_reader
+        from .plates import read_plates
+
+        return read_plates
+
+    def _faces_fns(self):
+        if self._face_backend is not None:
+            return self._face_backend
+        from . import faces
+
+        return faces
+
     def _q(self, sql, args=()):
         with self.lock:
             return [dict(r) for r in self.db.execute(sql, args).fetchall()]
 
     def sources(self) -> list:
-        return self._q("SELECT id, path, sha256, kind, camera, start_time, duration_s, case_ref, synthetic, quality_json, ingested_at, frames_indexed, objects_indexed FROM sources ORDER BY ingested_at DESC")
+        rows = self._q("SELECT id, path, sha256, kind, camera, start_time, duration_s, case_ref, synthetic, quality_json, scene_tags, ingested_at, frames_indexed, objects_indexed FROM sources ORDER BY ingested_at DESC")
+        for r in rows:
+            r["scene_tags"] = json.loads(r["scene_tags"] or "[]")
+            r["plates_read"] = self._q("SELECT COUNT(*) AS n FROM plates WHERE source_id=?", (r["id"],))[0]["n"]
+            r["faces_indexed"] = self._q("SELECT COUNT(*) AS n FROM faces WHERE source_id=?", (r["id"],))[0]["n"]
+        return rows
 
     def _is_synthetic(self, path: Path, frames: list) -> bool:
         """True if the file carries our provenance manifest or our watermark."""
@@ -250,6 +307,10 @@ class SearchEngine:
             if self.index_enhanced and needs_enhancement(q):
                 rows.append((t, "frame", None, None, None, "enhanced", thumb, enhance(f, q)))
         n_obj = 0
+        plate_rows: list = []
+        face_rows: list = []
+        if self.enable_faces:
+            face_rows = self._index_faces(sid, samples)
         if self.detect_objects:
             det_frames = [enhance(f, q) if needs_enhancement(q) else f for f, q in zip(frames, quals)]
             for (t, f), df, dets in zip(samples, det_frames, self._detector().detect(det_frames)):
@@ -263,7 +324,26 @@ class SearchEngine:
                     thumb = self._thumb(sid, f"{t:.2f}_{n_obj}", crop)
                     rows.append((t, "object", cls, sc, [x, y, w, h], "enhanced" if df is not f else "original", thumb, crop))
                     n_obj += 1
+                    if self.enable_plates and cls in VEHICLES - {"bicycle"} and w >= 40:
+                        plate_rows.extend(self._read_vehicle_plates(sid, t, cls, f[y0:y1, x0:x1], x0, y0))
+        self._save_background(sid, frames)
+        if self.enable_plates and kind == "image" and not plate_rows:
+            # Photos (e.g. a close-up of a plate) get a whole-image pass when no vehicle plate was read.
+            plate_rows.extend(self._read_vehicle_plates(sid, 0.0, None, frames[0], 0, 0))
         vecs = emb.encode_images([r[7] for r in rows])
+        tags = [None] * len(rows)
+        scene_tags: list = []
+        if self.enable_tags and len(rows):
+            frame_idx = [i for i, r in enumerate(rows) if r[1] == "frame" and r[5] == "original"]
+            if frame_idx:
+                sims = vecs[frame_idx] @ self._text_vecs(SCENES).T
+                mean = sims.mean(0)
+                top = np.argsort(-mean)[:3]
+                scene_tags = [{"tag": SCENES[i].split(" ", 1)[1], "score": round(float(mean[i]), 3)} for i in top]
+            for i, r in enumerate(rows):
+                if r[1] == "object" and r[2] in VEHICLES:
+                    cs = vecs[i] @ self._text_vecs([f"a {c} {r[2]}" for c in VEHICLE_COLOURS]).T
+                    tags[i] = json.dumps({"colour": VEHICLE_COLOURS[int(np.argmax(cs))]})
         h0, w0 = frames[0].shape[:2]
         with self.lock:
             self.db.execute("BEGIN")
@@ -273,12 +353,61 @@ class SearchEngine:
                  json.dumps({"dark_frames": sum(q.dark for q in quals), "noisy_frames": sum(q.noisy for q in quals), "ir_frames": sum(q.monochrome for q in quals), "sampled": len(quals)}),
                  now_iso(), actor, len(samples), n_obj),
             )
-            for (t, k, cls, sc, bbox, var, thumb, _), v in zip(rows, vecs):
+            self.db.execute("UPDATE sources SET scene_tags=? WHERE id=?", (json.dumps(scene_tags), sid))
+            for pr in plate_rows:
+                self.db.execute("INSERT INTO plates (source_id, t, text, raw, valid, vehicle, x, y, w, h, thumb) VALUES (?,?,?,?,?,?,?,?,?,?,?)", pr)
+            for fr in face_rows:
+                self.db.execute("INSERT INTO faces (source_id, t, x, y, w, h, score, size_px, thumb, vec) VALUES (?,?,?,?,?,?,?,?,?,?)", fr)
+            for (t, k, cls, sc, bbox, var, thumb, _), v, tg in zip(rows, vecs, tags):
                 x, y, w, h = bbox if bbox else (None, None, None, None)
-                self.db.execute("INSERT INTO items (source_id, t, kind, cls, score, x, y, w, h, variant, thumb, vec) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                                (sid, t, k, cls, sc, x, y, w, h, var, thumb, v.astype(np.float16).tobytes()))
+                self.db.execute("INSERT INTO items (source_id, t, kind, cls, score, x, y, w, h, variant, thumb, vec, tags) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                (sid, t, k, cls, sc, x, y, w, h, var, thumb, v.astype(np.float16).tobytes(), tg))
             self.db.execute("COMMIT")
         return {"frames": len(samples), "objects": n_obj, "synthetic": synthetic}
+
+    def _read_vehicle_plates(self, sid, t, cls, crop, ox, oy) -> list:
+        """Plate rows (source_id, t, text, raw, valid, vehicle, x, y, w, h, thumb) for one vehicle crop."""
+        if crop.size == 0:
+            return []
+        q = assess(crop)
+        if q.dark or q.noisy:
+            crop = enhance(crop, q)
+        scale = 2.0 if max(crop.shape[:2]) < 600 else 1.0
+        big = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC) if scale != 1 else crop
+        out, seen = [], set()
+        for r in self._plates_fn()(big)[:2]:
+            if r.text in seen or len(r.text) < 5:
+                continue
+            seen.add(r.text)
+            x, y, w, h = (int(v / scale) for v in r.bbox)
+            thumb = self._thumb(sid, f"{t:.2f}_plate_{len(seen)}_{ox}", crop[max(0, y - 4): y + h + 4, max(0, x - 4): x + w + 4] if h > 0 and w > 0 else crop)
+            out.append((sid, t, r.text, r.raw, int(r.valid_format), cls, ox + x, oy + y, w, h, thumb))
+        return out
+
+    def _index_faces(self, sid, samples) -> list:
+        fb = self._faces_fns()
+        rows = []
+        for t, f in samples:
+            # Dark/noisy frames are enhanced first: on night-degraded faces this lifted
+            # matches from 1% to 30% (benchmarks/plates_faces_eval.py).
+            q = assess(f)
+            f = enhance(f, q) if (q.dark or q.noisy) else f
+            for k, row in enumerate(fb.detect_faces(f)):
+                x, y, w, h = (int(v) for v in row[:4])
+                if w < 12 or h < 12:
+                    continue
+                v = fb.embed_face(f, row)
+                thumb = self._thumb(sid, f"{t:.2f}_face_{k}", f[max(0, y): y + h, max(0, x): x + w])
+                rows.append((sid, t, x, y, w, h, float(row[-1]), int(min(w, h)), thumb, v.astype(np.float16).tobytes()))
+        return rows
+
+    def _save_background(self, sid: str, frames: list) -> None:
+        """Median of the sampled frames (moving people vanish): the camera's view of the place."""
+        sel = frames[:: max(1, len(frames) // 15)][:15]
+        small = [cv2.resize(f, (640, int(f.shape[0] * 640 / f.shape[1]))) for f in sel]
+        bg = np.median(np.stack(small), axis=0).astype(np.uint8) if len(small) > 1 else small[0]
+        (self.dir / "backgrounds").mkdir(exist_ok=True)
+        cv2.imwrite(str(self.dir / "backgrounds" / f"{sid}.jpg"), bg, [cv2.IMWRITE_JPEG_QUALITY, 90])
 
     def _thumb(self, sid: str, tag: str, img: np.ndarray) -> str:
         p = self.dir / "thumbs" / sid
@@ -313,14 +442,28 @@ class SearchEngine:
         return v / np.linalg.norm(v)
 
     def search(self, actor: str, case_ref: str, purpose: str, text: str | None = None, image: np.ndarray | None = None,
-               k: int = 30, kinds=("frame", "object"), classes=None, source_ids=None, include_synthetic: bool = False, merge_s: float = 3.0) -> dict:
+               k: int = 30, kinds=("frame", "object"), classes=None, source_ids=None, include_synthetic: bool = False, merge_s: float = 3.0,
+               scene: str | None = None, vehicle_colour: str | None = None) -> dict:
         if not case_ref or not purpose:
             raise ValueError("every search needs a case reference and a purpose (accountability)")
+        translation = None
+        original_text = text
+        if text:
+            from .translate import translate_query
+
+            translation = translate_query(text, self._translator)
+            text = translation["text"]
         q = self.query_vector(text, image)
+        if scene:
+            allowed = {r["id"] for r in self._q("SELECT id, scene_tags FROM sources") if any(scene.lower() in tg["tag"].lower() for tg in json.loads(r["scene_tags"] or "[]"))}
+            source_ids = list(allowed & set(source_ids)) if source_ids else list(allowed)
+            if not source_ids:
+                source_ids = ["__none__"]
+        colour_items = None
+        if vehicle_colour:
+            colour_items = {r["id"] for r in self._q("SELECT id, tags FROM items WHERE tags IS NOT NULL") if json.loads(r["tags"]).get("colour") == vehicle_colour.lower()}
         M, meta = self._load()
-        if not meta:
-            return {"results": [], "searched_items": 0}
-        scores = M @ q
+        scores = M @ q if meta else np.zeros(0, np.float32)
         keep = np.ones(len(meta), bool)
         for i, m in enumerate(meta):
             if m["kind"] not in kinds or (classes and m["kind"] == "object" and m["cls"] not in classes) or (classes and m["kind"] == "frame" and "frame" not in classes):
@@ -328,6 +471,8 @@ class SearchEngine:
             elif source_ids and m["source_id"] not in source_ids:
                 keep[i] = False
             elif m["synthetic"] and not include_synthetic:
+                keep[i] = False
+            elif colour_items is not None and m["id"] not in colour_items:
                 keep[i] = False
         order = [i for i in np.argsort(-scores) if keep[i]]
         hits: list = []
@@ -358,14 +503,153 @@ class SearchEngine:
             n_ir = sum(1 for h in hits if h.source_id in ir_sources)
             if n_ir:
                 warnings.append(f"{n_ir} result(s) come from infrared/monochrome footage, where colours cannot be judged. Measured colour-search accuracy on IR footage is near chance.")
-        if text and any(ord(ch) > 0x024F for ch in text):
-            warnings.append("Non-Latin-script query: Indian-language queries measured near chance accuracy with the current model. Prefer English, or enable a translation step.")
-        out = {"results": [h.to_dict() for h in hits], "searched_items": int(keep.sum()), "query": {"text": text, "image": image is not None},
+        if translation and translation["source_lang"] and not translation["translated"]:
+            warnings.append(f"Query in {translation['source_lang']} could not be translated ({translation['error']}); Indian-language queries without translation score near chance. Use English.")
+        elif translation and translation["translated"]:
+            warnings.append(f"Searched for the translation \"{text}\" ({translation['backend']}). Check it matches what you meant.")
+        out = {"results": [h.to_dict() for h in hits], "searched_items": int(keep.sum()),
+               "query": {"text": original_text, "searched_text": text, "translation": translation, "image": image is not None, "scene": scene, "vehicle_colour": vehicle_colour},
                "warnings": warnings,
                "note": "Scores are relative similarities, not probabilities. Review every result; a search hit is a lead, not an identification."}
-        self._audit(actor, "search_query", {"case_ref": case_ref, "purpose": purpose, "text": text, "image_query": image is not None, "results": len(hits),
+        self._audit(actor, "search_query", {"case_ref": case_ref, "purpose": purpose, "text": original_text, "searched_text": text, "image_query": image is not None, "results": len(hits),
                                             "top": [h.source_id for h in hits[:5]]})
         return out
+
+    # ------------------------------------------------------------------ plates
+    def search_plate(self, actor: str, case_ref: str, purpose: str, plate: str, k: int = 30, min_score: float = 0.6, include_synthetic: bool = False) -> dict:
+        """Full or partial plate search, tolerant of OCR errors (edit distance)."""
+        from .plates import plate_match_score
+
+        if not case_ref or not purpose:
+            raise ValueError("every search needs a case reference and a purpose (accountability)")
+        rows = self._q("SELECT p.*, s.path, s.kind AS skind, s.synthetic, s.camera FROM plates p JOIN sources s ON s.id = p.source_id")
+        groups: dict = {}
+        for r in rows:
+            if r["synthetic"] and not include_synthetic:
+                continue
+            sc = plate_match_score(plate, r["text"])
+            if sc < min_score:
+                continue
+            key = (r["source_id"], r["text"])
+            g = groups.get(key)
+            if g is None or sc > g["score"]:
+                prev = g or {}
+                groups[key] = {"source_id": r["source_id"], "path": r["path"], "kind": r["skind"], "plate_read": r["text"], "raw_ocr": r["raw"],
+                               "valid_format": bool(r["valid"]), "vehicle": r["vehicle"], "score": round(sc, 3), "plate_id": r["id"],
+                               "bbox": [r["x"], r["y"], r["w"], r["h"]], "camera": r["camera"],
+                               "t_start": min(r["t"], prev.get("t_start", r["t"])), "t_end": max(r["t"], prev.get("t_end", r["t"]))}
+            else:
+                g["t_start"], g["t_end"] = min(g["t_start"], r["t"]), max(g["t_end"], r["t"])
+        res = sorted(groups.values(), key=lambda g: -g["score"])[:k]
+        self._audit(actor, "search_plate", {"case_ref": case_ref, "purpose": purpose, "plate_query": plate, "results": len(res)})
+        return {"results": res, "plates_indexed": len(rows),
+                "note": "Plate reads are OCR output and can be wrong (measured: about half of real Indian plate crops read within one character). Confirm visually."}
+
+    def plate_thumb(self, plate_id: int) -> Path | None:
+        r = self._q("SELECT thumb FROM plates WHERE id=?", (plate_id,))
+        return (self.dir / r[0]["thumb"]) if r and r[0]["thumb"] else None
+
+    # ------------------------------------------------------------------ faces
+    def search_face(self, actor: str, case_ref: str, purpose: str, justification: str, image: np.ndarray, k: int = 20, all_cases: bool = False) -> dict:
+        """Rank faces in this case's footage by similarity to a probe photo. Opt-in, case-scoped, audited."""
+        if not self.enable_faces:
+            raise PermissionError("face search is disabled on this deployment (CCTVGPT_FACE_SEARCH_ENABLED)")
+        if not case_ref or not purpose or len((justification or "").strip()) < 20:
+            raise ValueError("face search needs a case reference, a purpose and a written justification (20+ characters)")
+        fb = self._faces_fns()
+        pq = assess(image)
+        if pq.dark or pq.noisy:
+            image = enhance(image, pq)
+        probe = fb.largest_face(image)
+        if probe is None:
+            raise ValueError("no face found in the probe image")
+        pv = fb.embed_face(image, probe)
+        if all_cases:
+            rows = self._q("SELECT f.*, s.path, s.kind AS skind, s.camera, s.synthetic, s.case_ref FROM faces f JOIN sources s ON s.id = f.source_id")
+        else:
+            rows = self._q("SELECT f.*, s.path, s.kind AS skind, s.camera, s.synthetic, s.case_ref FROM faces f JOIN sources s ON s.id = f.source_id WHERE s.case_ref=?", (case_ref,))
+        rows = [r for r in rows if not r["synthetic"]]
+        out = []
+        if rows:
+            M = np.stack([np.frombuffer(r["vec"], np.float16).astype(np.float32) for r in rows])
+            sims = M @ pv
+            for i in np.argsort(-sims)[:k]:
+                r = rows[i]
+                out.append({"face_id": r["id"], "source_id": r["source_id"], "path": r["path"], "kind": r["skind"], "t": r["t"], "camera": r["camera"],
+                            "bbox": [r["x"], r["y"], r["w"], r["h"]], "similarity": round(float(sims[i]), 3),
+                            "above_threshold": bool(sims[i] >= fb.MATCH_THRESHOLD),
+                            "reliability": "low (face under 40 px)" if r["size_px"] < fb.MIN_RELIABLE_FACE_PX else "normal"})
+        probe_hash = hashlib.sha256(cv2.imencode(".png", image)[1].tobytes()).hexdigest()
+        self._audit(actor, "search_face", {"case_ref": case_ref, "purpose": purpose, "justification": justification, "probe_sha256": probe_hash,
+                                           "scope": "all cases" if all_cases else "this case", "faces_compared": len(rows), "above_threshold": sum(o["above_threshold"] for o in out)})
+        return {"results": out, "faces_compared": len(rows), "threshold": fb.MATCH_THRESHOLD,
+                "note": "Possible matches for human verification only. A similarity score is not an identification; accuracy drops sharply on small, blurred or dark faces."}
+
+    def face_thumb(self, face_id: int) -> Path | None:
+        r = self._q("SELECT thumb FROM faces WHERE id=?", (face_id,))
+        return (self.dir / r[0]["thumb"]) if r and r[0]["thumb"] else None
+
+    # ------------------------------------------------------------------ places
+    def places(self, min_inliers: int = 30) -> list:
+        """Group sources filmed at the same place.
+
+        Uses geometric matching of each source's background (median frame):
+        ORB keypoints, ratio test, then a RANSAC homography. A fixed camera seen
+        by day and by night, or two cameras with overlapping views, share many
+        consistent keypoints; different rooms of the same type do not. (Embedding
+        similarity was measured to confuse two rooms of the same lab, so it is
+        only used for the scene-type tags.)
+        """
+        meta = {s["id"]: s for s in self.sources()}
+        orb = cv2.ORB_create(2000)
+        feats = {}
+        for sid in meta:
+            p = self.dir / "backgrounds" / f"{sid}.jpg"
+            img = cv2.imread(str(p)) if p.exists() else None
+            if img is None:
+                continue
+            q = assess(img)
+            g = cv2.cvtColor(enhance(img, q) if (q.dark or q.noisy) else img, cv2.COLOR_BGR2GRAY)
+            kp, des = orb.detectAndCompute(g, None)
+            if des is not None and len(kp) >= 20:
+                feats[sid] = (kp, des)
+        parent = {sid: sid for sid in meta}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING)
+        ids = list(feats)
+        links = {}
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                (ka, da), (kb, db) = feats[ids[i]], feats[ids[j]]
+                good = [m for m, n in (pair for pair in bf.knnMatch(da, db, k=2) if len(pair) == 2) if m.distance < 0.75 * n.distance]
+                if len(good) < min_inliers:
+                    continue
+                src = np.float32([ka[m.queryIdx].pt for m in good])
+                dst = np.float32([kb[m.trainIdx].pt for m in good])
+                _, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
+                inl = int(mask.sum()) if mask is not None else 0
+                if inl >= min_inliers:
+                    parent[find(ids[i])] = find(ids[j])
+                    links[(ids[i], ids[j])] = inl
+        groups: dict = {}
+        for sid in meta:
+            groups.setdefault(find(sid), []).append(sid)
+        out = []
+        for root, members in groups.items():
+            tags: dict = {}
+            for sid in members:
+                for tg in meta[sid].get("scene_tags", []):
+                    tags[tg["tag"]] = tags.get(tg["tag"], 0) + 1
+            out.append({"place_id": f"place_{root[4:12]}", "sources": [{"id": sid, "path": meta[sid]["path"], "camera": meta[sid]["camera"]} for sid in members],
+                        "scene_tags": sorted(tags, key=lambda t: -tags[t])[:3],
+                        "evidence": [{"a": a, "b": b, "matched_keypoints": n} for (a, b), n in links.items() if a in members]})
+        return sorted(out, key=lambda g: -len(g["sources"]))
 
     def thumb_path(self, item_id: int) -> Path | None:
         r = self._q("SELECT thumb FROM items WHERE id=?", (item_id,))

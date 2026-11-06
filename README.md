@@ -2,7 +2,11 @@
 
 CCTVGPT has two parts that work together:
 
-1. **Forensic footage search** ([docs/SEARCH.md](docs/SEARCH.md)). Find specific people, vehicles, objects and moments across photo galleries, video files and CCTV/NVR exports, including dark, noisy and IR night footage. Search by plain-language description or by example photo, then export segments from the untouched original with a chain-of-custody record. It runs on-premises on CPU, every search is tied to a case reference and audited, and there is no face recognition.
+1. **Forensic footage search** ([docs/SEARCH.md](docs/SEARCH.md)). Find specific people, vehicles, objects and moments across photo galleries, video files and CCTV/NVR exports, including dark, noisy and IR night footage.
+   - **Search modes:** plain-language description (Hindi and other Indian languages are translated), example photo, number plate (full, partial or fuzzy), and opt-in, case-scoped face matching.
+   - **Filters:** place type and vehicle colour, plus automatic grouping of footage filmed at the same place.
+   - **Export:** segments are cut from the untouched original with a chain-of-custody record.
+   - **Deployment:** runs on-premises on CPU; every search is tied to a case reference and audited.
 2. **Synthetic CCTV generation with safeguards** (below). This is the test bench that measures search and analytics accuracy under night, rain, fog and occlusion with exact ground truth, and the data engine for making search robust.
 
 The generator was built first, from the original PRD (*Synthetic CCTV-Style Video Generation*, draft v0.1): prompt-based generation of realistic, fixed-camera, CCTV-style clips for training and testing video-analytics systems, with safeguards built into the core of the product. This is the Phase 1 build of the VidyuthLabs AI vertical described in *PRD: Synthetic CCTV-Style Video Generation* (draft v0.1, 6 November 2026).
