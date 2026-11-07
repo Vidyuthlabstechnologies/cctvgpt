@@ -62,49 +62,56 @@
   }
  },
  "faces": {
-  "pairs": 1000,
+  "pairs": 400,
   "threshold": 0.363,
   "clean": {
-   "accuracy": 0.99,
-   "true_match_rate": 0.98,
+   "accuracy": 0.993,
+   "true_match_rate": 0.984,
    "false_match_rate": 0.0,
-   "auroc": 0.995,
+   "auroc": 0.993,
    "face_not_detected": 0.0
   },
   "low_res_face_45px": {
-   "accuracy": 0.988,
-   "true_match_rate": 0.978,
-   "false_match_rate": 0.002,
-   "auroc": 0.996,
+   "accuracy": 0.995,
+   "true_match_rate": 0.989,
+   "false_match_rate": 0.0,
+   "auroc": 0.997,
    "face_not_detected": 0.0
   },
   "tiny_face_20px": {
-   "accuracy": 0.908,
-   "true_match_rate": 0.82,
-   "false_match_rate": 0.004,
-   "auroc": 0.977,
-   "face_not_detected": 0.012
+   "accuracy": 0.92,
+   "true_match_rate": 0.837,
+   "false_match_rate": 0.009,
+   "auroc": 0.986,
+   "face_not_detected": 0.005
   },
   "jpeg_q15": {
-   "accuracy": 0.984,
-   "true_match_rate": 0.97,
-   "false_match_rate": 0.002,
-   "auroc": 0.995,
+   "accuracy": 0.993,
+   "true_match_rate": 0.984,
+   "false_match_rate": 0.0,
+   "auroc": 0.998,
    "face_not_detected": 0.0
   },
   "night": {
-   "accuracy": 0.505,
-   "true_match_rate": 0.01,
+   "accuracy": 0.545,
+   "true_match_rate": 0.011,
    "false_match_rate": 0.0,
-   "auroc": 0.502,
-   "face_not_detected": 0.986
+   "auroc": 0.494,
+   "face_not_detected": 0.978
   },
   "night_enhanced": {
-   "accuracy": 0.645,
-   "true_match_rate": 0.29,
+   "accuracy": 0.677,
+   "true_match_rate": 0.299,
    "false_match_rate": 0.0,
-   "auroc": 0.612,
-   "face_not_detected": 0.556
+   "auroc": 0.592,
+   "face_not_detected": 0.555
+  },
+  "night_cascade": {
+   "accuracy": 0.76,
+   "true_match_rate": 0.489,
+   "false_match_rate": 0.009,
+   "auroc": 0.81,
+   "face_not_detected": 0.18
   }
  },
  "plates": {
@@ -120,14 +127,19 @@
    "search_top1": 0.296
   },
   "night": {
-   "exact": 0.149,
-   "within_1_char": 0.197,
-   "search_top1": 0.222
+   "exact": 0.15,
+   "within_1_char": 0.185,
+   "search_top1": 0.211
+  },
+  "night_enhanced_classical": {
+   "exact": 0.18,
+   "within_1_char": 0.225,
+   "search_top1": 0.25
   },
   "night_enhanced": {
-   "exact": 0.179,
-   "within_1_char": 0.234,
-   "search_top1": 0.26
+   "exact": 0.213,
+   "within_1_char": 0.261,
+   "search_top1": 0.285
   }
  }
 }

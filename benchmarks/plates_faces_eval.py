@@ -30,7 +30,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from cctvgpt.search.enhance import assess, degrade_to_night, enhance  # noqa: E402
+from cctvgpt.search.enhance import assess, degrade_to_night, enhance, night_enhance, night_variants  # noqa: E402
 
 RNG = np.random.default_rng(0)
 
@@ -59,7 +59,10 @@ def as_product(img):
 
 
 CONDITIONS = {"clean": lambda x: x, "low_res_face_45px": low_res, "tiny_face_20px": tiny, "jpeg_q15": jpeg,
-              "night": lambda x: degrade_to_night(x, RNG), "night_enhanced": lambda x: as_product(degrade_to_night(x, RNG))}
+              "night": lambda x: degrade_to_night(x, RNG), "night_enhanced": lambda x: as_product(degrade_to_night(x, RNG)),
+              # What the engine does now: denoise -> Zero-DCE, then classical, then Zero-DCE x2, until a face is found.
+              "night_cascade": lambda x: degrade_to_night(x, RNG)}
+CASCADE = {"night_cascade"}
 
 
 def plates(limit: int | None) -> dict:
@@ -75,7 +78,9 @@ def plates(limit: int | None) -> dict:
     out = {"plates": len(df)}
     plate_conditions = {"clean": lambda x: x, "half_res": lambda x: cv2.resize(cv2.resize(x, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA), (x.shape[1], x.shape[0])),
                         "night": lambda x: degrade_to_night(x, RNG, darkness=0.35, noise=10),
-                        "night_enhanced": lambda x: as_product(degrade_to_night(x, RNG, darkness=0.35, noise=10))}
+                        "night_enhanced_classical": lambda x: as_product(degrade_to_night(x, RNG, darkness=0.35, noise=10)),
+                        # What the engine does now: denoise -> Zero-DCE on dark plate crops.
+                        "night_enhanced": lambda x: night_enhance(degrade_to_night(x, RNG, darkness=0.35, noise=10))}
     for cname, fn in plate_conditions.items():
         gts, reads = [], []
         for _, r in df.iterrows():
@@ -117,7 +122,12 @@ def faces(limit: int | None) -> dict:
             for im in (a, b):
                 bgr = cv2.cvtColor(np.clip(im if im.max() > 1.5 else im * 255, 0, 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
                 bgr = fn(bgr)
-                face = F.largest_face(bgr)
+                face = None
+                for v in (night_variants(bgr) if cname in CASCADE else [bgr]):
+                    face = F.largest_face(v)
+                    if face is not None:
+                        bgr = v
+                        break
                 vecs.append(None if face is None else F.embed_face(bgr, face))
             if vecs[0] is None or vecs[1] is None:
                 missed += 1

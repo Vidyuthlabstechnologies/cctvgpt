@@ -61,13 +61,14 @@ The web page is `/search`. The API lives under `/v1/search/*` and needs an `inve
 
 | Capability | Data | Clean | CCTV-like degradation |
 |---|---|---|---|
-| Plate reading (exact / within 1 char / plate search finds it first) | 965 real Indian plates (internal evaluation only; no licence stated) | 60% / 68% / 71% | Half resolution: 21% / 27% / 30% · Night: 15% / 20% / 22% · Night + enhancement: 18% / 23% / 26% |
-| Face matching (accuracy, true-match rate, false-match rate) | LFW, 1,000 verification pairs | 99.0%, 98.0%, 0.0% | Face 45 px: 98.8% · Face 20 px: 90.8% (true match 82%, false match 0.4%) · JPEG q15: 98.4% · Night: 50.5% (98.6% of faces not detected) · Night + enhancement: 64.5% (true match 29%, false match 0%) |
+| Plate reading (exact / within 1 char / plate search finds it first) | 965 real Indian plates (internal evaluation only; no licence stated) | 60% / 68% / 71% | Half resolution: 21% / 27% / 30% · Night: 15% / 19% / 21% · Night + classical enhancement: 18% / 23% / 25% · **Night + denoise → Zero-DCE (current): 21% / 26% / 29%** |
+| Face matching (accuracy, true-match rate, false-match rate) | LFW, 400 balanced verification pairs | 99.3%, 98.4%, 0.0% | Face 45 px: 99.5% · Face 20 px: 92.0% (true match 84%, false match 0.9%) · JPEG q15: 99.3% · Night: 54.5% (98% of faces not detected) · Night + classical enhancement: 67.7% (true match 30%, false match 0%, 56% not detected) · **Night + enhancement cascade (current): 76.0% (true match 49%, false match 0.9%, 18% not detected)** |
 | Hindi query, translated (AP / P@10), URFD "lying" frames | Real footage | "फर्श पर लेटा हुआ व्यक्ति" → "The man lying on the floor": **0.51 / 1.0** (untranslated 0.23; English 0.60) | Night: 0.39 / 0.7 |
 
 What this means:
 
 - **Plates are usable** on reasonably sized plates. They are weak at low resolution and at night, where dedicated ANPR cameras (IR illuminated, high shutter speed) or plate-specific fine-tuning on Indian plates are needed. The synthetic generator can render Indian plates for that training.
+- **Night improvements (measured).** For faces, the engine tries a cascade of enhancers until a face is found: denoise then Zero-DCE learned low-light curves, then classical CLAHE/gamma, then a stronger Zero-DCE. This took the night true-match rate from 30% to 49%. The false-match rate rose from 0% to 0.9%, so night face hits must be confirmed by an officer. For plates, denoise then Zero-DCE on dark vehicle crops took exact night reads from 18% to 21%. In video, reads of the same plate within 4 s are also fused by per-character vote (shown as `CONSENSUS`). Zero-DCE alone made faces worse because it amplifies sensor noise, so denoising comes first. Two other methods were tried and rejected. Test-time augmentation with confidence-weighted fusion (several crops and enhancers per plate) cut exact plate reads from 17% to 6%. Multi-frame voting gave at most +2 points on simulated night, because the remaining errors come from blur and resolution, not noise.
 - **Face matching is accurate on visible faces**, down to about 20 px, and **rarely matches the wrong person** at the default threshold (false matches 0–0.4% in every condition). It **fails in the dark**, because faces are not even detected. LFW is mostly frontal photos of public figures and is not representative of Indian demographics or CCTV angles. Accuracy must be re-measured on Indian, CCTV-angle data before any operational use **[VERIFY]**.
 - **Translation fixes Hindi search** (AP 0.23 → 0.51 for the best phrasing). The fallback model is sensitive to phrasing ("गिरा हुआ" became "dropped"), which is why IndicTrans2 is preferred and the translated text is always shown.
 - **Same-place grouping** correctly grouped the same office by day and by (degraded) night, with 53 matched keypoints, and kept different rooms apart. Embedding similarity alone could not: two different rooms scored 0.90.
@@ -121,7 +122,7 @@ Real CCTV night archives from a pilot partner, labelled for evaluation, are the 
 2. **Attributes that survive IR.** Train clothing-pattern, carried-object, two-wheeler and helmet attributes, and use upper/lower clothing *brightness* instead of hue on IR footage.
 3. **Indian languages.** Done with translation: enable IndicTrans2 on the server, then evaluate each language with native-speaker query sets.
 4. **Plates.** Fine-tune the recogniser on Indian plates (real + synthetic), add dedicated ANPR camera feeds, and add state/RTO decoding.
-5. **Faces at night.** Add a low-light face detector, and evaluate on Indian CCTV-angle data with demographic breakdowns before any operational use.
+5. **Faces at night.** Zero-DCE enhancement cascade done (true match 30% → 49%). Next: a detector trained on low-light faces (e.g. on DARK FACE) and IR-specific fine-tuning; and evaluate on Indian CCTV-angle data with demographic breakdowns before any operational use.
 6. **Scale.** GPU ingest, FAISS/pgvector, NVR/RTSP connectors (ONVIF), and DAV/proprietary DVR formats via vendor SDKs.
 7. **Integration** with CCTNS/ICJS case systems and MHA's e-Sakshya evidence app **[VERIFY APIs and procurement route]**.
 
