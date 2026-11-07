@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import threading
+from collections import Counter
 from dataclasses import dataclass
 
 import cv2
@@ -230,3 +231,29 @@ def plate_match_score(query: str, candidate: str) -> float:
         best = min(edit_distance(q, c[i : i + len(q)]) for i in range(len(c) - len(q) + 1))
         return max(0.0, 0.95 - best / len(q))
     return max(0.0, 1.0 - edit_distance(q, c) / max(len(q), len(c)))
+
+
+def consensus(reads: list) -> tuple[str, float]:
+    """Fuse several reads of the same plate (e.g. from consecutive video frames).
+
+    Night footage has independent sensor noise in every frame, so OCR errors
+    differ between frames. Reads are grouped by length; within the most common
+    length, each character position takes a majority vote. Returns (plate,
+    agreement), where agreement is the mean share of reads that agree per
+    position.
+    """
+    reads = [re.sub(r"[^A-Z0-9]", "", r.upper()) for r in reads if r]
+    if not reads:
+        return "", 0.0
+    lengths = Counter(len(r) for r in reads)
+    # Prefer the most common length; break ties towards lengths of valid Indian plates.
+    best_len = max(lengths, key=lambda n: (lengths[n], any(normalise_plate(r)[1] for r in reads if len(r) == n)))
+    same = [r for r in reads if len(r) == best_len]
+    chars, agree = [], []
+    for i in range(best_len):
+        c = Counter(r[i] for r in same)
+        ch, n = c.most_common(1)[0]
+        chars.append(ch)
+        agree.append(n / len(same))
+    text, _ = normalise_plate("".join(chars))
+    return text, float(np.mean(agree))

@@ -42,7 +42,7 @@ import cv2
 import numpy as np
 
 from ..store import new_id, now_iso
-from .enhance import assess, enhance, needs_enhancement
+from .enhance import assess, enhance, needs_enhancement, night_enhance, night_variants
 
 COLOUR_WORDS = {"red", "blue", "black", "white", "green", "yellow", "orange", "purple", "pink", "brown", "grey", "gray", "maroon", "saffron", "navy"}
 
@@ -327,6 +327,8 @@ class SearchEngine:
                     if self.enable_plates and cls in VEHICLES - {"bicycle"} and w >= 40:
                         plate_rows.extend(self._read_vehicle_plates(sid, t, cls, f[y0:y1, x0:x1], x0, y0))
         self._save_background(sid, frames)
+        if self.enable_plates and kind == "video" and len(plate_rows) > 1:
+            plate_rows.extend(self._fuse_plate_reads(plate_rows))
         if self.enable_plates and kind == "image" and not plate_rows:
             # Photos (e.g. a close-up of a plate) get a whole-image pass when no vehicle plate was read.
             plate_rows.extend(self._read_vehicle_plates(sid, 0.0, None, frames[0], 0, 0))
@@ -365,13 +367,46 @@ class SearchEngine:
             self.db.execute("COMMIT")
         return {"frames": len(samples), "objects": n_obj, "synthetic": synthetic}
 
+    @staticmethod
+    def _fuse_plate_reads(rows: list, window_s: float = 4.0, min_reads: int = 3) -> list:
+        """Multi-frame consensus: reads of one vehicle across nearby frames are fused by per-character vote.
+
+        Night frames carry independent sensor noise, so different frames make different OCR
+        errors (benchmarks/plates_faces_eval.py measures the gain). Returns extra rows with
+        raw text "CONSENSUS n=<reads> agree=<share>".
+        """
+        from .plates import consensus, plate_match_score
+
+        rows = sorted(rows, key=lambda r: r[1])
+        used = [False] * len(rows)
+        out = []
+        for i, r in enumerate(rows):
+            if used[i]:
+                continue
+            group = [i]
+            for j in range(i + 1, len(rows)):
+                if not used[j] and rows[j][1] - r[1] <= window_s and plate_match_score(r[2], rows[j][2]) >= 0.6:
+                    group.append(j)
+            if len(group) < min_reads:
+                continue
+            for j in group:
+                used[j] = True
+            text, agree = consensus([rows[j][2] for j in group])
+            if not text or any(rows[j][2] == text for j in group) and agree == 1.0:
+                continue
+            best = rows[group[len(group) // 2]]
+            from .plates import normalise_plate
+
+            out.append((best[0], best[1], text, f"CONSENSUS n={len(group)} agree={agree:.2f}", int(normalise_plate(text)[1]), best[5], *best[6:]))
+        return out
+
     def _read_vehicle_plates(self, sid, t, cls, crop, ox, oy) -> list:
         """Plate rows (source_id, t, text, raw, valid, vehicle, x, y, w, h, thumb) for one vehicle crop."""
         if crop.size == 0:
             return []
         q = assess(crop)
         if q.dark or q.noisy:
-            crop = enhance(crop, q)
+            crop = night_enhance(crop, q)  # denoise -> Zero-DCE when dark: 22.7% vs 22.3% exact at night (benchmarks)
         scale = 2.0 if max(crop.shape[:2]) < 600 else 1.0
         big = cv2.resize(crop, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC) if scale != 1 else crop
         out, seen = [], set()
@@ -387,12 +422,9 @@ class SearchEngine:
     def _index_faces(self, sid, samples) -> list:
         fb = self._faces_fns()
         rows = []
-        for t, f in samples:
-            # Dark/noisy frames are enhanced first: on night-degraded faces this lifted
-            # matches from 1% to 30% (benchmarks/plates_faces_eval.py).
-            q = assess(f)
-            f = enhance(f, q) if (q.dark or q.noisy) else f
-            for k, row in enumerate(fb.detect_faces(f)):
+        for t, f0 in samples:
+            f, found = self._faces_cascade(f0)
+            for k, row in enumerate(found):
                 x, y, w, h = (int(v) for v in row[:4])
                 if w < 12 or h < 12:
                     continue
@@ -400,6 +432,22 @@ class SearchEngine:
                 thumb = self._thumb(sid, f"{t:.2f}_face_{k}", f[max(0, y): y + h, max(0, x): x + w])
                 rows.append((sid, t, x, y, w, h, float(row[-1]), int(min(w, h)), thumb, v.astype(np.float16).tobytes()))
         return rows
+
+    def _faces_cascade(self, img: np.ndarray):
+        """Detect faces, enhancing dark frames by a cascade (denoise -> Zero-DCE, classical, Zero-DCE x2).
+
+        Returns (the image the faces were found in, detection rows). On night-degraded
+        faces this raised the true-match rate from 28% (classical only) to about 46%
+        at 0% false matches (benchmarks/plates_faces_eval.py).
+        """
+        fb = self._faces_fns()
+        first = None
+        for v in night_variants(img):
+            first = v if first is None else first
+            rows = fb.detect_faces(v)
+            if len(rows):
+                return v, rows
+        return (first if first is not None else img), []
 
     def _save_background(self, sid: str, frames: list) -> None:
         """Median of the sampled frames (moving people vanish): the camera's view of the place."""
@@ -557,10 +605,8 @@ class SearchEngine:
         if not case_ref or not purpose or len((justification or "").strip()) < 20:
             raise ValueError("face search needs a case reference, a purpose and a written justification (20+ characters)")
         fb = self._faces_fns()
-        pq = assess(image)
-        if pq.dark or pq.noisy:
-            image = enhance(image, pq)
-        probe = fb.largest_face(image)
+        image, found = self._faces_cascade(image)
+        probe = max(found, key=lambda f: f[2] * f[3]) if len(found) else None
         if probe is None:
             raise ValueError("no face found in the probe image")
         pv = fb.embed_face(image, probe)

@@ -290,3 +290,29 @@ def test_plate_face_places_api(platform, engine, footage):
         allc = c.post("/v1/search/face", data={**form, "all_cases": "true"}, files={"image": ("p.png", buf.tobytes(), "image/png")}, headers=H)
         assert allc.status_code == 403  # only admins may search across cases
         assert c.get("/v1/search/places", headers=H).status_code == 200
+
+
+def test_multiframe_plate_consensus_fuses_noisy_reads():
+    from cctvgpt.search.plates import consensus
+
+    assert consensus(["MH01DE2780", "MH01DF2780", "MHO1DE27B0", "MH01DE2788", "H01DE2780"])[0] == "MH01DE2780"
+    rows = [("src", t, txt, txt, 1, "car", 0, 0, 10, 10, "th") for t, txt in
+            [(0.0, "MH01DE2788"), (1.0, "MH01DF2780"), (2.0, "MH01DE2780"), (3.0, "MHO1DE27B0"), (20.0, "KA05MN1234")]]
+    fused = SearchEngine._fuse_plate_reads(rows)
+    assert len(fused) == 1 and fused[0][2] == "MH01DE2780" and fused[0][3].startswith("CONSENSUS n=4")
+
+
+def test_dark_probe_is_rescued_by_enhancement_cascade(engine):
+    """A detector that only sees faces in bright images still finds one in a dark probe."""
+    from cctvgpt.search.enhance import degrade_to_night
+
+    class BrightOnlyFaces(StubFaces):
+        @staticmethod
+        def detect_faces(img):
+            return [np.array([10, 10, 50, 50] + [0] * 10 + [0.9], np.float32)] if img.mean() > 60 else []
+
+    engine._face_backend = BrightOnlyFaces()
+    dark = degrade_to_night(np.full((120, 120, 3), 170, np.uint8), np.random.default_rng(0))
+    assert dark.mean() < 60 and BrightOnlyFaces.detect_faces(dark) == []
+    img, found = engine._faces_cascade(dark)
+    assert len(found) == 1 and img.mean() > 60
