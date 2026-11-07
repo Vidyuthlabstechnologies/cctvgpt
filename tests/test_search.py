@@ -290,3 +290,13 @@ def test_plate_face_places_api(platform, engine, footage):
         allc = c.post("/v1/search/face", data={**form, "all_cases": "true"}, files={"image": ("p.png", buf.tobytes(), "image/png")}, headers=H)
         assert allc.status_code == 403  # only admins may search across cases
         assert c.get("/v1/search/places", headers=H).status_code == 200
+
+
+def test_multiframe_plate_consensus_fuses_noisy_reads():
+    from cctvgpt.search.plates import consensus
+
+    assert consensus(["MH01DE2780", "MH01DF2780", "MHO1DE27B0", "MH01DE2788", "H01DE2780"])[0] == "MH01DE2780"
+    rows = [("src", t, txt, txt, 1, "car", 0, 0, 10, 10, "th") for t, txt in
+            [(0.0, "MH01DE2788"), (1.0, "MH01DF2780"), (2.0, "MH01DE2780"), (3.0, "MHO1DE27B0"), (20.0, "KA05MN1234")]]
+    fused = SearchEngine._fuse_plate_reads(rows)
+    assert len(fused) == 1 and fused[0][2] == "MH01DE2780" and fused[0][3].startswith("CONSENSUS n=4")

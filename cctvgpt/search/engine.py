@@ -327,6 +327,8 @@ class SearchEngine:
                     if self.enable_plates and cls in VEHICLES - {"bicycle"} and w >= 40:
                         plate_rows.extend(self._read_vehicle_plates(sid, t, cls, f[y0:y1, x0:x1], x0, y0))
         self._save_background(sid, frames)
+        if self.enable_plates and kind == "video" and len(plate_rows) > 1:
+            plate_rows.extend(self._fuse_plate_reads(plate_rows))
         if self.enable_plates and kind == "image" and not plate_rows:
             # Photos (e.g. a close-up of a plate) get a whole-image pass when no vehicle plate was read.
             plate_rows.extend(self._read_vehicle_plates(sid, 0.0, None, frames[0], 0, 0))
@@ -364,6 +366,39 @@ class SearchEngine:
                                 (sid, t, k, cls, sc, x, y, w, h, var, thumb, v.astype(np.float16).tobytes(), tg))
             self.db.execute("COMMIT")
         return {"frames": len(samples), "objects": n_obj, "synthetic": synthetic}
+
+    @staticmethod
+    def _fuse_plate_reads(rows: list, window_s: float = 4.0, min_reads: int = 3) -> list:
+        """Multi-frame consensus: reads of one vehicle across nearby frames are fused by per-character vote.
+
+        Night frames carry independent sensor noise, so different frames make different OCR
+        errors (benchmarks/plates_faces_eval.py measures the gain). Returns extra rows with
+        raw text "CONSENSUS n=<reads> agree=<share>".
+        """
+        from .plates import consensus, plate_match_score
+
+        rows = sorted(rows, key=lambda r: r[1])
+        used = [False] * len(rows)
+        out = []
+        for i, r in enumerate(rows):
+            if used[i]:
+                continue
+            group = [i]
+            for j in range(i + 1, len(rows)):
+                if not used[j] and rows[j][1] - r[1] <= window_s and plate_match_score(r[2], rows[j][2]) >= 0.6:
+                    group.append(j)
+            if len(group) < min_reads:
+                continue
+            for j in group:
+                used[j] = True
+            text, agree = consensus([rows[j][2] for j in group])
+            if not text or any(rows[j][2] == text for j in group) and agree == 1.0:
+                continue
+            best = rows[group[len(group) // 2]]
+            from .plates import normalise_plate
+
+            out.append((best[0], best[1], text, f"CONSENSUS n={len(group)} agree={agree:.2f}", int(normalise_plate(text)[1]), best[5], *best[6:]))
+        return out
 
     def _read_vehicle_plates(self, sid, t, cls, crop, ox, oy) -> list:
         """Plate rows (source_id, t, text, raw, valid, vehicle, x, y, w, h, thumb) for one vehicle crop."""
