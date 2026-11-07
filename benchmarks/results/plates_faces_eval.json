@@ -1,0 +1,133 @@
+{
+ "translation": {
+  "फर्श पर लेटा हुआ व्यक्ति": {
+   "translation": "The man lying on the floor",
+   "backend": "opus-mt-hi-en",
+   "day": {
+    "ap": 0.505,
+    "p@10": 1.0,
+    "p@50": 0.8,
+    "relevant": 163,
+    "pool": 752,
+    "random_ap": 0.217
+   },
+   "night": {
+    "ap": 0.386,
+    "p@10": 0.7,
+    "p@50": 0.58,
+    "relevant": 163,
+    "pool": 752,
+    "random_ap": 0.217
+   }
+  },
+  "जमीन पर गिरा हुआ आदमी": {
+   "translation": "The man dropped on the ground",
+   "backend": "opus-mt-hi-en",
+   "day": {
+    "ap": 0.377,
+    "p@10": 0.8,
+    "p@50": 0.7,
+    "relevant": 163,
+    "pool": 752,
+    "random_ap": 0.217
+   },
+   "night": {
+    "ap": 0.222,
+    "p@10": 0.1,
+    "p@50": 0.2,
+    "relevant": 163,
+    "pool": 752,
+    "random_ap": 0.217
+   }
+  },
+  "फर्श पर पड़ा व्यक्ति": {
+   "translation": "On the floor, he is on the floor",
+   "backend": "opus-mt-hi-en",
+   "day": {
+    "ap": 0.342,
+    "p@10": 0.9,
+    "p@50": 0.56,
+    "relevant": 163,
+    "pool": 752,
+    "random_ap": 0.217
+   },
+   "night": {
+    "ap": 0.318,
+    "p@10": 0.5,
+    "p@50": 0.46,
+    "relevant": 163,
+    "pool": 752,
+    "random_ap": 0.217
+   }
+  }
+ },
+ "faces": {
+  "pairs": 1000,
+  "threshold": 0.363,
+  "clean": {
+   "accuracy": 0.99,
+   "true_match_rate": 0.98,
+   "false_match_rate": 0.0,
+   "auroc": 0.995,
+   "face_not_detected": 0.0
+  },
+  "low_res_face_45px": {
+   "accuracy": 0.988,
+   "true_match_rate": 0.978,
+   "false_match_rate": 0.002,
+   "auroc": 0.996,
+   "face_not_detected": 0.0
+  },
+  "tiny_face_20px": {
+   "accuracy": 0.908,
+   "true_match_rate": 0.82,
+   "false_match_rate": 0.004,
+   "auroc": 0.977,
+   "face_not_detected": 0.012
+  },
+  "jpeg_q15": {
+   "accuracy": 0.984,
+   "true_match_rate": 0.97,
+   "false_match_rate": 0.002,
+   "auroc": 0.995,
+   "face_not_detected": 0.0
+  },
+  "night": {
+   "accuracy": 0.505,
+   "true_match_rate": 0.01,
+   "false_match_rate": 0.0,
+   "auroc": 0.502,
+   "face_not_detected": 0.986
+  },
+  "night_enhanced": {
+   "accuracy": 0.645,
+   "true_match_rate": 0.29,
+   "false_match_rate": 0.0,
+   "auroc": 0.612,
+   "face_not_detected": 0.556
+  }
+ },
+ "plates": {
+  "plates": 965,
+  "clean": {
+   "exact": 0.598,
+   "within_1_char": 0.683,
+   "search_top1": 0.708
+  },
+  "half_res": {
+   "exact": 0.205,
+   "within_1_char": 0.266,
+   "search_top1": 0.296
+  },
+  "night": {
+   "exact": 0.149,
+   "within_1_char": 0.197,
+   "search_top1": 0.222
+  },
+  "night_enhanced": {
+   "exact": 0.179,
+   "within_1_char": 0.234,
+   "search_top1": 0.26
+  }
+ }
+}

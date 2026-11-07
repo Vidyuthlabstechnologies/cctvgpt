@@ -1,0 +1,599 @@
+{
+ "overall": {
+  "clips": 60,
+  "detection": {
+   "person": {
+    "precision": 0.784,
+    "recall": 0.088,
+    "f1": 0.159,
+    "ap50": 0.104,
+    "gt_objects": 15611,
+    "recall_by_size": {
+     "32-64px": 0.019,
+     "64-128px": 0.191,
+     "<32px": 0.001,
+     ">=128px": 0.14
+    },
+    "recall_by_state": {
+     "crouching": 0.306,
+     "fallen": 0.0,
+     "falling": 0.244,
+     "lying": 0.0,
+     "lying_down": 0.163,
+     "running": 0.067,
+     "standing": 0.078,
+     "walking": 0.104
+    }
+   }
+  },
+  "events": {
+   "fall": {
+    "detected": 0,
+    "total": 20,
+    "rate": 0.0,
+    "median_latency_s": null
+   },
+   "crowd_surge": {
+    "detected": 0,
+    "total": 20,
+    "rate": 0.0,
+    "median_latency_s": null
+   }
+  },
+  "false_alarms": 0,
+  "false_alarms_per_clip": 0.0
+ },
+ "missing_predictions": [],
+ "by_condition": {
+  "time_of_day": {
+   "day": {
+    "clips": 30,
+    "detection": {
+     "person": {
+      "precision": 0.814,
+      "recall": 0.132,
+      "f1": 0.227,
+      "ap50": 0.157,
+      "gt_objects": 7701,
+      "recall_by_size": {
+       "32-64px": 0.027,
+       "64-128px": 0.278,
+       "<32px": 0.0,
+       ">=128px": 0.33
+      },
+      "recall_by_state": {
+       "crouching": 0.278,
+       "fallen": 0.0,
+       "falling": 0.343,
+       "lying": 0.0,
+       "lying_down": 0.102,
+       "running": 0.095,
+       "standing": 0.122,
+       "walking": 0.163
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 10,
+      "rate": 0.0,
+      "median_latency_s": null
+     },
+     "crowd_surge": {
+      "detected": 0,
+      "total": 10,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   },
+   "night": {
+    "clips": 30,
+    "detection": {
+     "person": {
+      "precision": 0.711,
+      "recall": 0.045,
+      "f1": 0.085,
+      "ap50": 0.054,
+      "gt_objects": 7910,
+      "recall_by_size": {
+       "32-64px": 0.011,
+       "64-128px": 0.103,
+       "<32px": 0.002,
+       ">=128px": 0.027
+      },
+      "recall_by_state": {
+       "crouching": 0.333,
+       "fallen": 0.0,
+       "falling": 0.182,
+       "lying": 0.0,
+       "lying_down": 0.233,
+       "running": 0.038,
+       "standing": 0.043,
+       "walking": 0.047
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 10,
+      "rate": 0.0,
+      "median_latency_s": null
+     },
+     "crowd_surge": {
+      "detected": 0,
+      "total": 10,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   }
+  },
+  "weather": {
+   "clear": {
+    "clips": 36,
+    "detection": {
+     "person": {
+      "precision": 0.8,
+      "recall": 0.103,
+      "f1": 0.182,
+      "ap50": 0.118,
+      "gt_objects": 9089,
+      "recall_by_size": {
+       "32-64px": 0.025,
+       "64-128px": 0.217,
+       "<32px": 0.002,
+       ">=128px": 0.136
+      },
+      "recall_by_state": {
+       "crouching": 0.256,
+       "fallen": 0.0,
+       "falling": 0.308,
+       "lying": 0.0,
+       "lying_down": 0.143,
+       "running": 0.081,
+       "standing": 0.099,
+       "walking": 0.117
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 12,
+      "rate": 0.0,
+      "median_latency_s": null
+     },
+     "crowd_surge": {
+      "detected": 0,
+      "total": 12,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   },
+   "fog": {
+    "clips": 12,
+    "detection": {
+     "person": {
+      "precision": 0.832,
+      "recall": 0.072,
+      "f1": 0.133,
+      "ap50": 0.093,
+      "gt_objects": 3165,
+      "recall_by_size": {
+       "32-64px": 0.006,
+       "64-128px": 0.158,
+       "<32px": 0.0,
+       ">=128px": 0.0
+      },
+      "recall_by_state": {
+       "crouching": 0.467,
+       "fallen": 0.0,
+       "falling": 0.056,
+       "lying": 0.0,
+       "lying_down": 0.316,
+       "running": 0.044,
+       "standing": 0.062,
+       "walking": 0.091
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 4,
+      "rate": 0.0,
+      "median_latency_s": null
+     },
+     "crowd_surge": {
+      "detected": 0,
+      "total": 4,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   },
+   "rain": {
+    "clips": 12,
+    "detection": {
+     "person": {
+      "precision": 0.685,
+      "recall": 0.065,
+      "f1": 0.118,
+      "ap50": 0.076,
+      "gt_objects": 3357,
+      "recall_by_size": {
+       "32-64px": 0.013,
+       "64-128px": 0.158,
+       "<32px": 0.0,
+       ">=128px": 0.5
+      },
+      "recall_by_state": {
+       "crouching": 0.286,
+       "fallen": 0.0,
+       "falling": 0.25,
+       "lying": 0.0,
+       "lying_down": 0.059,
+       "running": 0.055,
+       "standing": 0.023,
+       "walking": 0.077
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 4,
+      "rate": 0.0,
+      "median_latency_s": null
+     },
+     "crowd_surge": {
+      "detected": 0,
+      "total": 4,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   }
+  },
+  "occlusion": {
+   "heavy": {
+    "clips": 30,
+    "detection": {
+     "person": {
+      "precision": 0.746,
+      "recall": 0.079,
+      "f1": 0.144,
+      "ap50": 0.091,
+      "gt_objects": 6369,
+      "recall_by_size": {
+       "32-64px": 0.009,
+       "64-128px": 0.179,
+       "<32px": 0.0,
+       ">=128px": 0.073
+      },
+      "recall_by_state": {
+       "crouching": 0.139,
+       "fallen": 0.0,
+       "falling": 0.054,
+       "lying": 0.0,
+       "lying_down": 0.07,
+       "running": 0.068,
+       "standing": 0.096,
+       "walking": 0.089
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 10,
+      "rate": 0.0,
+      "median_latency_s": null
+     },
+     "crowd_surge": {
+      "detected": 0,
+      "total": 10,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   },
+   "none": {
+    "clips": 30,
+    "detection": {
+     "person": {
+      "precision": 0.808,
+      "recall": 0.094,
+      "f1": 0.169,
+      "ap50": 0.113,
+      "gt_objects": 9242,
+      "recall_by_size": {
+       "32-64px": 0.025,
+       "64-128px": 0.2,
+       "<32px": 0.002,
+       ">=128px": 0.253
+      },
+      "recall_by_state": {
+       "crouching": 0.472,
+       "fallen": 0.0,
+       "falling": 0.377,
+       "lying": 0.0,
+       "lying_down": 0.245,
+       "running": 0.066,
+       "standing": 0.068,
+       "walking": 0.114
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 10,
+      "rate": 0.0,
+      "median_latency_s": null
+     },
+     "crowd_surge": {
+      "detected": 0,
+      "total": 10,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   }
+  },
+  "scene": {
+   "corridor": {
+    "clips": 12,
+    "detection": {
+     "person": {
+      "precision": 0.818,
+      "recall": 0.051,
+      "f1": 0.097,
+      "ap50": 0.07,
+      "gt_objects": 2801,
+      "recall_by_size": {
+       "32-64px": 0.027,
+       "64-128px": 0.041,
+       "<32px": 0.0,
+       ">=128px": 0.139
+      },
+      "recall_by_state": {
+       "crouching": 0.0,
+       "fallen": 0.0,
+       "falling": 0.05,
+       "lying": 0.0,
+       "lying_down": 0.0,
+       "running": 0.031,
+       "standing": 0.048,
+       "walking": 0.069
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 4,
+      "rate": 0.0,
+      "median_latency_s": null
+     },
+     "crowd_surge": {
+      "detected": 0,
+      "total": 4,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   },
+   "parking_lot": {
+    "clips": 36,
+    "detection": {
+     "person": {
+      "precision": 0.771,
+      "recall": 0.072,
+      "f1": 0.132,
+      "ap50": 0.087,
+      "gt_objects": 9778,
+      "recall_by_size": {
+       "32-64px": 0.008,
+       "64-128px": 0.172,
+       "<32px": 0.0,
+       ">=128px": 0.167
+      },
+      "recall_by_state": {
+       "crouching": 0.295,
+       "fallen": 0.0,
+       "falling": 0.255,
+       "lying": 0.0,
+       "lying_down": 0.161,
+       "running": 0.051,
+       "standing": 0.052,
+       "walking": 0.089
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 12,
+      "rate": 0.0,
+      "median_latency_s": null
+     },
+     "crowd_surge": {
+      "detected": 0,
+      "total": 12,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   },
+   "warehouse": {
+    "clips": 12,
+    "detection": {
+     "person": {
+      "precision": 0.793,
+      "recall": 0.175,
+      "f1": 0.286,
+      "ap50": 0.191,
+      "gt_objects": 3032,
+      "recall_by_size": {
+       "32-64px": 0.045,
+       "64-128px": 0.486,
+       "<32px": 0.004
+      },
+      "recall_by_state": {
+       "crouching": 0.692,
+       "fallen": 0.0,
+       "falling": 0.421,
+       "lying": 0.0,
+       "lying_down": 0.316,
+       "running": 0.168,
+       "standing": 0.2,
+       "walking": 0.175
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 4,
+      "rate": 0.0,
+      "median_latency_s": null
+     },
+     "crowd_surge": {
+      "detected": 0,
+      "total": 4,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   }
+  },
+  "event": {
+   "crowd_surge": {
+    "clips": 20,
+    "detection": {
+     "person": {
+      "precision": 0.732,
+      "recall": 0.068,
+      "f1": 0.124,
+      "ap50": 0.08,
+      "gt_objects": 12668,
+      "recall_by_size": {
+       "32-64px": 0.009,
+       "64-128px": 0.156,
+       "<32px": 0.0,
+       ">=128px": 0.15
+      },
+      "recall_by_state": {
+       "running": 0.067,
+       "standing": 0.072,
+       "walking": 0.069
+      }
+     }
+    },
+    "events": {
+     "crowd_surge": {
+      "detected": 0,
+      "total": 20,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   },
+   "fall": {
+    "clips": 20,
+    "detection": {
+     "person": {
+      "precision": 0.867,
+      "recall": 0.154,
+      "f1": 0.261,
+      "ap50": 0.184,
+      "gt_objects": 1444,
+      "recall_by_size": {
+       "32-64px": 0.069,
+       "64-128px": 0.268,
+       "<32px": 0.005,
+       ">=128px": 0.03
+      },
+      "recall_by_state": {
+       "fallen": 0.0,
+       "falling": 0.244,
+       "standing": 0.286,
+       "walking": 0.17
+      }
+     }
+    },
+    "events": {
+     "fall": {
+      "detected": 0,
+      "total": 20,
+      "rate": 0.0,
+      "median_latency_s": null
+     }
+    },
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   },
+   "lie_down": {
+    "clips": 20,
+    "detection": {
+     "person": {
+      "precision": 0.907,
+      "recall": 0.196,
+      "f1": 0.323,
+      "ap50": 0.229,
+      "gt_objects": 1499,
+      "recall_by_size": {
+       "32-64px": 0.081,
+       "64-128px": 0.394,
+       "<32px": 0.0,
+       ">=128px": 0.212
+      },
+      "recall_by_state": {
+       "crouching": 0.306,
+       "lying": 0.0,
+       "lying_down": 0.163,
+       "standing": 0.212,
+       "walking": 0.211
+      }
+     }
+    },
+    "events": {},
+    "false_alarms": 0,
+    "false_alarms_per_clip": 0.0
+   }
+  }
+ },
+ "method": {
+  "iou_threshold": 0.5,
+  "event_tolerance_s": 1.0,
+  "note": "Ground truth is exact (rendered). Objects under 30% visible are ignore regions."
+ },
+ "detector": "torchvision fasterrcnn_mobilenet_v3_large_fpn (COCO), score>=0.5 for P/R, all scores for AP"
+}

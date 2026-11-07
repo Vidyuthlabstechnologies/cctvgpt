@@ -1,0 +1,214 @@
+{
+  "real": {
+    "clips": 70,
+    "falls": 30,
+    "adl": 40
+  },
+  "synthetic": {
+    "clips": 300,
+    "falls": 150,
+    "by_event": {
+      "crouch": 50,
+      "fall": 150,
+      "lie_down": 50,
+      "walk": 50
+    }
+  },
+  "features": [
+    "max_drop_1s",
+    "max_ar_rise_1s",
+    "end_ar",
+    "end_h",
+    "min_h",
+    "max_descent_05s",
+    "fastest_drop_s",
+    "frac_low",
+    "valid_frac"
+  ],
+  "real_frontend": "detector",
+  "synthetic_labels": "renderer ground truth + 4% box jitter",
+  "realism_check": {
+    "clips": 60,
+    "detector_recall_on_synthetic_people": {
+      "fall": 0.223,
+      "walk": 0.553,
+      "crouch": 0.569,
+      "lie_down": 0.388
+    }
+  },
+  "A_real_only_cv_lr": {
+    "accuracy": 0.97,
+    "precision": 0.997,
+    "recall": 0.933,
+    "f1": 0.962,
+    "auroc": 0.995
+  },
+  "B_synthetic_only_lr": {
+    "accuracy": 0.843,
+    "precision": 1.0,
+    "recall": 0.633,
+    "f1": 0.776,
+    "auroc": 0.982
+  },
+  "C_synthetic_no_hard_negatives_lr": {
+    "accuracy": 0.886,
+    "precision": 1.0,
+    "recall": 0.733,
+    "f1": 0.846,
+    "auroc": 0.982
+  },
+  "A_real_only_cv_rf": {
+    "accuracy": 0.956,
+    "precision": 1.0,
+    "recall": 0.897,
+    "f1": 0.942,
+    "auroc": 0.987
+  },
+  "B_synthetic_only_rf": {
+    "accuracy": 0.757,
+    "precision": 0.882,
+    "recall": 0.5,
+    "f1": 0.638,
+    "auroc": 0.868
+  },
+  "C_synthetic_no_hard_negatives_rf": {
+    "accuracy": 0.929,
+    "precision": 0.931,
+    "recall": 0.9,
+    "f1": 0.915,
+    "auroc": 0.983
+  },
+  "D_1_real_per_class": {
+    "real_only": {
+      "accuracy": 0.696,
+      "precision": 0.64,
+      "recall": 0.771,
+      "f1": 0.682,
+      "auroc": 0.747
+    },
+    "real_plus_synthetic": {
+      "accuracy": 0.855,
+      "precision": 0.98,
+      "recall": 0.675,
+      "f1": 0.797,
+      "auroc": 0.971
+    }
+  },
+  "D_2_real_per_class": {
+    "real_only": {
+      "accuracy": 0.872,
+      "precision": 0.839,
+      "recall": 0.901,
+      "f1": 0.863,
+      "auroc": 0.94
+    },
+    "real_plus_synthetic": {
+      "accuracy": 0.869,
+      "precision": 0.98,
+      "recall": 0.707,
+      "f1": 0.82,
+      "auroc": 0.972
+    }
+  },
+  "D_3_real_per_class": {
+    "real_only": {
+      "accuracy": 0.905,
+      "precision": 0.897,
+      "recall": 0.899,
+      "f1": 0.892,
+      "auroc": 0.962
+    },
+    "real_plus_synthetic": {
+      "accuracy": 0.877,
+      "precision": 0.972,
+      "recall": 0.733,
+      "f1": 0.834,
+      "auroc": 0.973
+    }
+  },
+  "D_5_real_per_class": {
+    "real_only": {
+      "accuracy": 0.94,
+      "precision": 0.93,
+      "recall": 0.934,
+      "f1": 0.929,
+      "auroc": 0.979
+    },
+    "real_plus_synthetic": {
+      "accuracy": 0.888,
+      "precision": 0.982,
+      "recall": 0.746,
+      "f1": 0.846,
+      "auroc": 0.977
+    }
+  },
+  "D_10_real_per_class": {
+    "real_only": {
+      "accuracy": 0.948,
+      "precision": 0.945,
+      "recall": 0.931,
+      "f1": 0.935,
+      "auroc": 0.987
+    },
+    "real_plus_synthetic": {
+      "accuracy": 0.908,
+      "precision": 0.984,
+      "recall": 0.784,
+      "f1": 0.871,
+      "auroc": 0.984
+    }
+  },
+  "E_rule_baseline": {
+    "accuracy": 0.829,
+    "precision": 0.8,
+    "recall": 0.8,
+    "f1": 0.8,
+    "auroc": 0.825
+  },
+  "feature_means": {
+    "real_fall": {
+      "max_drop_1s": 0.544,
+      "max_ar_rise_1s": 1.701,
+      "end_ar": 1.786,
+      "end_h": 0.45,
+      "min_h": 0.361,
+      "max_descent_05s": 0.286,
+      "fastest_drop_s": 1.09,
+      "frac_low": 0.297,
+      "valid_frac": 0.917
+    },
+    "real_adl": {
+      "max_drop_1s": 0.392,
+      "max_ar_rise_1s": 0.384,
+      "end_ar": 0.676,
+      "end_h": 0.606,
+      "min_h": 0.462,
+      "max_descent_05s": 0.146,
+      "fastest_drop_s": 3.262,
+      "frac_low": 0.14,
+      "valid_frac": 0.744
+    },
+    "synthetic_fall": {
+      "max_drop_1s": 0.656,
+      "max_ar_rise_1s": 2.053,
+      "end_ar": 1.987,
+      "end_h": 0.408,
+      "min_h": 0.318,
+      "max_descent_05s": 0.389,
+      "fastest_drop_s": 0.487,
+      "frac_low": 0.42,
+      "valid_frac": 0.988
+    },
+    "synthetic_negative": {
+      "max_drop_1s": 0.363,
+      "max_ar_rise_1s": 1.14,
+      "end_ar": 1.427,
+      "end_h": 0.576,
+      "min_h": 0.43,
+      "max_descent_05s": 0.164,
+      "fastest_drop_s": 3.074,
+      "frac_low": 0.204,
+      "valid_frac": 0.959
+    }
+  }
+}
