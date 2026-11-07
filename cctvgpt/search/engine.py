@@ -155,13 +155,20 @@ class SearchHit:
 class SearchEngine:
     def __init__(self, base_dir: Path, store=None, watermarker=None, keys=None, variant: str = "en", detect_objects: bool = True,
                  embedder=None, detector=None, index_enhanced: bool = False, enable_plates: bool = True,
-                 enable_faces: bool = False, enable_tags: bool = True, plate_reader=None, face_backend=None, translator=None):
+                 enable_faces: bool = False, enable_tags: bool = True, plate_reader=None, face_backend=None, translator=None,
+                 enable_events: bool = True):
         self.dir = Path(base_dir)
         (self.dir / "thumbs").mkdir(parents=True, exist_ok=True)
         (self.dir / "exports").mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(str(self.dir / "search.sqlite3"), check_same_thread=False, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        from .fusion import CAMERA_SCHEMA
+
+        self.db.executescript(CAMERA_SCHEMA)
+        from .events import EVENT_SCHEMA
+
+        self.db.executescript(EVENT_SCHEMA)
         for table, col in (("items", "tags"), ("sources", "scene_tags")):
             cols = {r[1] for r in self.db.execute(f"PRAGMA table_info({table})")}
             if col not in cols:
@@ -171,6 +178,7 @@ class SearchEngine:
         # Face indexing is biometric processing: off unless the deployment enables it.
         self.enable_faces = enable_faces
         self.enable_tags = enable_tags
+        self.enable_events = enable_events
         self._plate_reader = plate_reader
         self._face_backend = face_backend
         self._translator = translator
@@ -261,7 +269,7 @@ class SearchEngine:
     # ------------------------------------------------------------------ ingest
     def ingest(self, path, actor: str, case_ref: str, camera: str | None = None, start_time: str | None = None, every_s: float = 1.0) -> dict:
         files = discover(Path(path))
-        summary = {"files": len(files), "indexed": 0, "skipped_duplicates": 0, "synthetic_flagged": 0, "frames": 0, "objects": 0, "errors": []}
+        summary = {"files": len(files), "indexed": 0, "skipped_duplicates": 0, "synthetic_flagged": 0, "frames": 0, "objects": 0, "events": 0, "errors": []}
         for f in files:
             try:
                 r = self._ingest_file(f, actor, case_ref, camera, start_time, every_s)
@@ -274,6 +282,7 @@ class SearchEngine:
             summary["indexed"] += 1
             summary["frames"] += r["frames"]
             summary["objects"] += r["objects"]
+            summary["events"] += r.get("events", 0)
             summary["synthetic_flagged"] += int(r["synthetic"])
         self._matrix = None
         self._audit(actor, "search_ingest", {"path": str(path), "case_ref": case_ref, **{k: v for k, v in summary.items() if k != "errors"}, "errors": len(summary["errors"])})
@@ -346,6 +355,7 @@ class SearchEngine:
                 if r[1] == "object" and r[2] in VEHICLES:
                     cs = vecs[i] @ self._text_vecs([f"a {c} {r[2]}" for c in VEHICLE_COLOURS]).T
                     tags[i] = json.dumps({"colour": VEHICLE_COLOURS[int(np.argmax(cs))]})
+        events = self._detect_events(rows, vecs) if self.enable_events and len(rows) else []
         h0, w0 = frames[0].shape[:2]
         with self.lock:
             self.db.execute("BEGIN")
@@ -360,12 +370,54 @@ class SearchEngine:
                 self.db.execute("INSERT INTO plates (source_id, t, text, raw, valid, vehicle, x, y, w, h, thumb) VALUES (?,?,?,?,?,?,?,?,?,?,?)", pr)
             for fr in face_rows:
                 self.db.execute("INSERT INTO faces (source_id, t, x, y, w, h, score, size_px, thumb, vec) VALUES (?,?,?,?,?,?,?,?,?,?)", fr)
+            item_ids = []
             for (t, k, cls, sc, bbox, var, thumb, _), v, tg in zip(rows, vecs, tags):
                 x, y, w, h = bbox if bbox else (None, None, None, None)
-                self.db.execute("INSERT INTO items (source_id, t, kind, cls, score, x, y, w, h, variant, thumb, vec, tags) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                                (sid, t, k, cls, sc, x, y, w, h, var, thumb, v.astype(np.float16).tobytes(), tg))
+                cur = self.db.execute("INSERT INTO items (source_id, t, kind, cls, score, x, y, w, h, variant, thumb, vec, tags) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                      (sid, t, k, cls, sc, x, y, w, h, var, thumb, v.astype(np.float16).tobytes(), tg))
+                item_ids.append(cur.lastrowid)
+            for kind_, t0, t1, score, ri, detail in events:
+                self.db.execute("INSERT INTO events (source_id, kind, t0, t1, score, item_id, thumb, detail) VALUES (?,?,?,?,?,?,?,?)",
+                                (sid, kind_, t0, t1, score, item_ids[ri], rows[ri][6], json.dumps(detail)))
             self.db.execute("COMMIT")
-        return {"frames": len(samples), "objects": n_obj, "synthetic": synthetic}
+        return {"frames": len(samples), "objects": n_obj, "synthetic": synthetic, "events": len(events)}
+
+    def _detect_events(self, rows: list, vecs: np.ndarray) -> list:
+        """(kind, t0, t1, score, row_index, detail) for violence windows and vehicle crashes."""
+        from .events import ACCIDENT_THRESHOLD, VEHICLE_CLASSES, VIOLENCE_PROMPTS, AccidentProbe, violence_windows
+
+        out = []
+        fi = [i for i, r in enumerate(rows) if r[1] == "frame" and r[5] == "original"]
+        if fi:
+            pos, neg = self._text_vecs(list(VIOLENCE_PROMPTS))
+            for t0, t1, sc, peak in violence_windows([rows[i][0] for i in fi], vecs[fi], pos, neg):
+                out.append(("violence", t0, t1, round(sc, 4), fi[peak], {"method": "zero-shot window score"}))
+        # The accident probe was trained on the English OpenCLIP model's embeddings only.
+        oi = [i for i, r in enumerate(rows) if r[1] == "object" and r[2] in VEHICLE_CLASSES]
+        if oi and self.variant == "en" and self._embedder_override is None:
+            probs = AccidentProbe().prob(vecs[oi])
+            for i, p in zip(oi, probs):
+                if p >= ACCIDENT_THRESHOLD:
+                    out.append(("accident", rows[i][0], rows[i][0], round(float(p), 4), i, {"vehicle": rows[i][2], "bbox": rows[i][4]}))
+        return out
+
+    def events(self, actor: str, case_ref: str, purpose: str, kind: str | None = None, k: int = 50, include_synthetic: bool = False) -> dict:
+        """Moments most likely to show a fight or a crash, best first, for an investigator to review."""
+        if not case_ref or not purpose:
+            raise ValueError("every search needs a case reference and a purpose (accountability)")
+        sql = "SELECT e.*, s.path, s.camera, s.synthetic FROM events e JOIN sources s ON s.id = e.source_id"
+        args: tuple = ()
+        if kind:
+            sql += " WHERE e.kind = ?"
+            args = (kind,)
+        rows = [r for r in self._q(sql + " ORDER BY e.score DESC", args) if include_synthetic or not r["synthetic"]][:k]
+        res = [{"event_id": r["id"], "kind": r["kind"], "source_id": r["source_id"], "path": r["path"], "camera": r["camera"],
+                "t_start": r["t0"], "t_end": r["t1"], "score": r["score"], "item_id": r["item_id"], "detail": json.loads(r["detail"] or "{}")}
+               for r in rows]
+        self._audit(actor, "search_events", {"case_ref": case_ref, "purpose": purpose, "kind": kind, "results": len(res)})
+        return {"results": res, "note": ("Ranked for review, not alerts. Measured on real CCTV fights: recall 0.91 at precision 0.67 on a balanced set; "
+                                         "on everyday footage most flagged moments will be false alarms. Accident scores come from a vehicle-crop "
+                                         "classifier (test AUROC 0.93). Confirm every event visually.")}
 
     @staticmethod
     def _fuse_plate_reads(rows: list, window_s: float = 4.0, min_reads: int = 3) -> list:
@@ -592,6 +644,63 @@ class SearchEngine:
         self._audit(actor, "search_plate", {"case_ref": case_ref, "purpose": purpose, "plate_query": plate, "results": len(res)})
         return {"results": res, "plates_indexed": len(rows),
                 "note": "Plate reads are OCR output and can be wrong (measured: about half of real Indian plate crops read within one character). Confirm visually."}
+
+    # ------------------------------------------------------------------ cameras and cross-camera trails
+    def set_camera(self, actor: str, name: str, lat: float | None = None, lon: float | None = None, clock_offset_s: float = 0.0,
+                   kind: str | None = None, note: str | None = None) -> dict:
+        """Register a camera's location and clock offset (seconds to add to its recorder time)."""
+        if not name:
+            raise ValueError("camera name required")
+        self.db.execute("INSERT INTO cameras(name, lat, lon, clock_offset_s, kind, note, updated_at, updated_by) VALUES (?,?,?,?,?,?,?,?) "
+                        "ON CONFLICT(name) DO UPDATE SET lat=excluded.lat, lon=excluded.lon, clock_offset_s=excluded.clock_offset_s, "
+                        "kind=excluded.kind, note=excluded.note, updated_at=excluded.updated_at, updated_by=excluded.updated_by",
+                        (name, lat, lon, float(clock_offset_s or 0), kind, note, now_iso(), actor))
+        self._audit(actor, "camera_set", {"camera": name, "lat": lat, "lon": lon, "clock_offset_s": clock_offset_s})
+        return {"name": name, "lat": lat, "lon": lon, "clock_offset_s": clock_offset_s, "kind": kind, "note": note}
+
+    def cameras(self) -> dict:
+        from .fusion import Camera
+
+        cams = {r["name"]: Camera(r["name"], r["lat"], r["lon"], r["clock_offset_s"] or 0.0, r["kind"], r["note"])
+                for r in self._q("SELECT * FROM cameras")}
+        for r in self._q("SELECT DISTINCT camera FROM sources WHERE camera IS NOT NULL"):
+            cams.setdefault(r["camera"], Camera(r["camera"]))
+        return cams
+
+    def trail_plate(self, actor: str, case_ref: str, purpose: str, plate: str, max_kmh: float = 80.0, min_score: float = 0.8,
+                    look_ahead_min: float = 30.0) -> dict:
+        """Movement trail of a vehicle across cameras, from fuzzy plate sightings.
+
+        Sightings are put on true time (recorder start + offset + camera clock
+        correction) and chained only where the travel speed between cameras is
+        physically possible. Impossible sightings are listed as conflicts.
+        """
+        from datetime import timedelta
+
+        from .fusion import Sighting, build_trail, true_time, where_next
+
+        hits = self.search_plate(actor, case_ref, purpose, plate, k=500, min_score=min_score)["results"]
+        cams = self.cameras()
+        starts = {r["id"]: r["start_time"] for r in self._q("SELECT id, start_time FROM sources")}
+        sightings = []
+        for h in hits:
+            cam = cams.get(h["camera"]) if h["camera"] else None
+            sightings.append(Sighting(h["camera"], true_time(starts.get(h["source_id"]), h["t_start"], cam), h["score"], h["source_id"], h["t_start"],
+                                      {"plate_read": h["plate_read"], "vehicle": h["vehicle"], "plate_id": h["plate_id"], "t_end": h["t_end"]}))
+        out = build_trail(sightings, cams, max_kmh=max_kmh)
+        out["where_next"] = []
+        if out["trail"]:
+            from .fusion import parse_time
+
+            last_d = out["trail"][-1]
+            last = Sighting(last_d["camera"], parse_time(last_d["time"]), last_d["score"], last_d["source_id"], last_d["t_in_file"])
+            seen = {s["camera"] for s in out["trail"]}
+            out["where_next"] = where_next(last, cams, last.time + timedelta(minutes=look_ahead_min), max_kmh, already=seen)
+        out["note"] = ("Investigative lead, not evidence of movement: confirm each sighting visually and verify camera clocks. "
+                       "Conflicts usually mean an OCR misread, a lookalike vehicle or a wrong camera clock.")
+        self._audit(actor, "trail_plate", {"case_ref": case_ref, "purpose": purpose, "plate_query": plate, "trail_points": len(out["trail"]),
+                                           "conflicts": len(out["conflicts"])})
+        return out
 
     def plate_thumb(self, plate_id: int) -> Path | None:
         r = self._q("SELECT thumb FROM plates WHERE id=?", (plate_id,))

@@ -34,7 +34,7 @@ cctvgpt = "cctvgpt.cli:main"
 include = ["cctvgpt*"]
 
 [tool.setuptools.package-data]
-"cctvgpt" = ["api/static/*", "safeguards/data/*"]
+"cctvgpt" = ["api/static/*", "safeguards/data/*", "search/probes/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

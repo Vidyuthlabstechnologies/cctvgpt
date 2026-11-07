@@ -116,7 +116,43 @@ Query: "a person wearing a <colour> shirt", over 7 colours and 165–235 person 
 
 Real CCTV night archives from a pilot partner, labelled for evaluation, are the next step.
 
+## Events, cross-camera trails and super-resolution (benchmarks/events_sr_eval.py)
+
+### Violence and accident detection
+
+| Detector | Method | Real test data | Result |
+|---|---|---|---|
+| Violence | Zero-shot CLIP: "people fighting" minus "people walking calmly", averaged over a window of sampled frames | 300 real CCTV clips (Surveillance Camera Fight Dataset, MIT) | **AUROC 0.87**. At the default threshold: recall 91%, precision 67% on a balanced set |
+| Violence (rejected) | Classifier trained on Real Life Violence Situations (RLVS) | Same CCTV clips | AUROC 0.80, despite 0.999 on held-out RLVS clips |
+| Accident | Logistic classifier on vehicle-crop embeddings, trained on CCTV accident crops (CC0) | 458 vehicle crops from held-out CCTV frames | **AUROC 0.93**, accuracy 86%, precision 88%, recall 92% |
+
+What this means:
+
+- **A near-perfect score on one dataset meant nothing.** The RLVS classifier learnt that dataset's shortcuts (sources, camera styles). On real CCTV, the untrained zero-shot score was better, so that is what ships.
+- **The accident test was nearly contaminated.** The dataset was augmented with flips before splitting: 67 of 325 test images were near-copies of training images. They were removed before measuring.
+- **These are rankings for review, not alarms.** Fights and crashes are rare in real footage. Even 67% precision on a balanced test set means most flagged moments in everyday footage will be false. The product lists events best first, with a "confirm visually" note, and does not raise alerts.
+- Both detectors reuse the embeddings computed during indexing, so they add almost no cost.
+
+### Cross-camera trails ("where did the vehicle go?")
+
+Cameras are registered with a location and a clock offset; Indian DVR clocks are often minutes or hours wrong. Plate sightings from every camera are then placed on true time. The trail is the highest-scoring chain of sightings that is physically possible at a city speed limit (default 80 km/h). A sighting that would need an impossible speed is listed as a conflict: usually a misread, a lookalike vehicle or a wrong clock.
+
+After the last sighting, the system lists the cameras the vehicle could have reached, nearest first, with the time window to pull footage for. This is tested with synthetic sightings; it has not been evaluated on a real multi-camera case.
+
+### Super-resolution: measured harmful for recognition, kept for viewing only
+
+| Test | Bicubic upscaling | Super-resolution (Real-ESRGAN) |
+|---|---|---|
+| 300 real Indian plates at half size: exact read | **25%** | 19% |
+| Same plates at one-third size: exact read | **14%** | 10% |
+| LFW faces about 20 px wide: true-match rate | **91%** | 73% |
+| Same faces: wrong-person match rate | **1.2%** | 3.0% |
+
+Super-resolution invents plausible detail, and the numbers show it: worse plate reads and more wrong-person face matches. It is therefore never used before plate or face recognition. It is offered only as a viewing aid, `/v1/search/enhanced-view/{item}`, which returns an image with "AI-ENHANCED - NOT EVIDENCE" burned into it. Exports always come from the original file.
+
 ## Roadmap to stronger search
+
+See also `docs/USE_CASES.md` for the Indian case types where footage is decisive, and the gaps.
 
 1. **Robustness to night footage via synthetic data.** Fine-tune the embedding model on paired day/night/IR renders from the CCTVGPT generator. This is where the generator becomes the training engine.
 2. **Attributes that survive IR.** Train clothing-pattern, carried-object, two-wheeler and helmet attributes, and use upper/lower clothing *brightness* instead of hue on IR footage.

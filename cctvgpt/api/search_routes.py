@@ -51,6 +51,31 @@ class PlateBody(BaseModel):
     min_score: float = Field(0.6, ge=0.0, le=1.0)
 
 
+class CameraBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    lat: float | None = Field(None, ge=-90, le=90)
+    lon: float | None = Field(None, ge=-180, le=180)
+    clock_offset_s: float = Field(0.0, ge=-7 * 86400, le=7 * 86400)
+    kind: str | None = Field(None, max_length=60)
+    note: str | None = Field(None, max_length=300)
+
+
+class TrailBody(BaseModel):
+    plate: str = Field(min_length=2, max_length=16)
+    case_ref: str
+    purpose: str = Field(min_length=3, max_length=300)
+    max_kmh: float = Field(80.0, ge=5, le=250)
+    min_score: float = Field(0.8, ge=0.5, le=1.0)
+    look_ahead_min: float = Field(30.0, ge=1, le=24 * 60)
+
+
+class EventsBody(BaseModel):
+    case_ref: str
+    purpose: str = Field(min_length=3, max_length=300)
+    kind: str | None = Field(None, pattern="^(violence|accident)$")
+    k: int = Field(50, ge=1, le=500)
+
+
 class ExportBody(BaseModel):
     source_id: str
     t0: float = Field(ge=0)
@@ -153,6 +178,39 @@ def register(app, platform, principal_dep, engine: SearchEngine | None = None) -
     def plate(body: PlateBody, p=Depends(investigator)):
         _check_case(body.case_ref)
         return eng().search_plate(p.principal, body.case_ref, body.purpose, body.plate, body.k, body.min_score)
+
+    @app.post("/v1/search/events")
+    def events(body: EventsBody, p=Depends(investigator)):
+        _check_case(body.case_ref)
+        return eng().events(p.principal, body.case_ref, body.purpose, body.kind, body.k)
+
+    @app.get("/v1/search/enhanced-view/{item_id}")
+    def enhanced_view(item_id: int, p=Depends(investigator)):
+        """Night-enhanced, super-resolved view of an indexed thumbnail, labelled as not evidence."""
+        from fastapi.responses import Response
+
+        from ..search.superres import EVIDENCE_LABEL, labelled_view
+
+        path = eng().thumb_path(item_id)
+        img = cv2.imread(str(path)) if path and path.exists() else None
+        if img is None:
+            raise HTTPException(404, "no such item")
+        eng()._audit(p.principal, "enhanced_view", {"item_id": item_id, "label": EVIDENCE_LABEL})
+        ok, buf = cv2.imencode(".png", labelled_view(img))
+        return Response(buf.tobytes(), media_type="image/png", headers={"X-Evidence-Status": "not-evidence"})
+
+    @app.get("/v1/search/cameras")
+    def cameras(p=Depends(investigator)):
+        return [vars(c) for c in eng().cameras().values()]
+
+    @app.post("/v1/search/cameras")
+    def set_camera(body: CameraBody, p=Depends(investigator)):
+        return eng().set_camera(p.principal, body.name, body.lat, body.lon, body.clock_offset_s, body.kind, body.note)
+
+    @app.post("/v1/search/trail")
+    def trail(body: TrailBody, p=Depends(investigator)):
+        _check_case(body.case_ref)
+        return eng().trail_plate(p.principal, body.case_ref, body.purpose, body.plate, body.max_kmh, body.min_score, body.look_ahead_min)
 
     @app.post("/v1/search/face")
     async def face(case_ref: str = Form(...), purpose: str = Form(...), justification: str = Form(...), all_cases: bool = Form(False),
