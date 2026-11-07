@@ -9,3 +9,4 @@ __pycache__/
 .venv/
 /external_data/
 *.npz
+!cctvgpt/search/probes/*.npz
